@@ -20,3 +20,13 @@ class Constants:
     MAX_BODY_SIZE = 20 * 1024 * 1024
     MAX_REQUESTS = 120 if os.getenv("ENV", "DEV") == "PROD" else 999_999_999
     WINDOW = 30
+
+    RESTRICTED_NAMES = {
+        "ougi",
+        "admin",
+        "moderator", 
+        "moderador", 
+        "system", 
+        "suporte",
+        "support"
+    }
