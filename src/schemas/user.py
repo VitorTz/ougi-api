@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, EmailStr
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -31,6 +31,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
 
     password: str = Field(..., min_length=8, description="Raw password to be hashed")
+    email: EmailStr
     is_adult: bool
 
     @field_validator("password", mode="after")

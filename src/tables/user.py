@@ -32,21 +32,25 @@ async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicR
     return UserPublicResponse(**row) if row else None
 
 
-async def get_user_login_data(username: str, conn: Connection):
+async def get_user_login_data(identifier: str, conn: Connection) -> dict:
     row = await conn.fetchrow(
         f"""
-            SELECT
-                {USER_COLUMNS},
-                u.password_hash
-            FROM
-                users u
+            UPDATE
+                users
+            SET
+                last_seen_at = NOW()
             WHERE
-                username = TRIM($1)
+                (username = TRIM($1) OR email = TRIM($1))
+                AND is_active = TRUE
+                AND is_banned = FALSE
+            RETURNING
+                {USER_COLUMNS},
+                password_hash;
         """,
-        username
+        identifier
     )
     
-    return UserPublicResponse(**row) if row else None
+    return dict(row)
 
 
 async def create_user(user: UserCreate, conn: Connection):
@@ -54,6 +58,7 @@ async def create_user(user: UserCreate, conn: Connection):
         """
             INSERT INTO users (
                 username,
+                email,
                 password_hash,
                 avatar_url,
                 bio,
@@ -64,6 +69,7 @@ async def create_user(user: UserCreate, conn: Connection):
                 (TRIM($1), $2, $3, TRIM($4), $5, $6)
         """,
         user.username,
+        user.email,
         user.password,
         user.avatar_url,
         user.bio,

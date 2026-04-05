@@ -1,7 +1,20 @@
+from fastapi import FastAPI, Request
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 from src.constants import Constants
 from src.routes import manhwas
-from fastapi import FastAPI
+from src.routes import auth
+from src.routes import logs
+from src.routes import admin
+from src.exceptions import DatabaseException
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.exceptions import RequestValidationError
 from src import db
+from src import handlers
+from src.ratelimit import limiter
 import contextlib
 import uvicorn
 
@@ -30,16 +43,52 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.state.limiter = limiter
+
+# origins = [
+#     "http://localhost:3000",   # Default port for Create React App
+#     "http://localhost:5173",   # Default port for Vite
+# ]
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+
+############################ Middlewares #############################
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+# app.add_middleware(
+#     TrustedHostMiddleware, 
+#     allowed_hosts=["localhost"]
+# )
+
+
+############################ Exception Handlers #############################
+
+app.add_exception_handler(RequestValidationError, handlers.validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, handlers.http_exception_handler)
+app.add_exception_handler(DatabaseException, handlers.database_exception_handler)
+app.add_exception_handler(Exception, handlers.global_exception_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 ############################ ROUTES #############################
 
 @app.get("/api/v1")
-def read_root():
+@limiter.limit("32/minute")
+def read_root(request: Request):
     return {"status": "ok"}
 
 
 app.include_router(manhwas.router, prefix='/api/v1/manhwas', tags=['manhwas'])
-
+app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+app.include_router(logs.router, prefix='/api/v1/logs', tags=['logs'])
+app.include_router(admin.router, prefix='/api/v1/admin', tags=['admin'])
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -53,3 +102,4 @@ if __name__ == "__main__":
         limit_concurrency=1000,
         timeout_keep_alive=5
     )
+    

@@ -3,6 +3,6 @@ from pydantic import BaseModel
 
 class LoginIdentifier(BaseModel):
     
-    username: str
+    identifier: str  # username or email
     password: str
 

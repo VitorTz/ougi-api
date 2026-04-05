@@ -1,16 +1,19 @@
+from fastapi import APIRouter, Query, status, Depends, Request
 from src.schemas.manhwas import ManhwaCatalogResponse
-from fastapi import APIRouter, Query, status, Depends
 from fastapi.exceptions import HTTPException
 from typing import Optional
 from asyncpg import Connection
 from src.db import db_connection
+from src.ratelimit import limiter
 
 
 router = APIRouter()
 
 
 @router.get("/", response_model=ManhwaCatalogResponse)
+@limiter.limit("32/minute")
 async def get_manhwa(
+    request: Request,
     id: Optional[str] = Query(default=None),
     title: Optional[str] = Query(default=None),
     conn: Connection = Depends(db_connection),
@@ -57,7 +60,9 @@ async def get_manhwa(
 
 
 @router.get("/search", response_model=list[ManhwaCatalogResponse])
+@limiter.limit("32/minute")
 async def search_manhwa(
+    request: Request,
     title: Optional[str] = Query(default=None),
     genres: Optional[list[str]] = Query(default=None),
     exclude_warnings: Optional[list[str]] = Query(default=None),

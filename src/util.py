@@ -1,3 +1,4 @@
+from fastapi import Request
 from src.constants import Constants
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -45,3 +46,35 @@ def is_impostor_name(username: str) -> bool:
             return True
             
     return False
+
+
+def get_real_client_ip(request: Request) -> str:
+    """
+    Extracts the real IP address of the user from the FastAPI Request object.
+    It checks common proxy and CDN headers before falling back to the 
+    direct client connection host.
+    """    
+    # 1. Cloudflare specific header (if you use Cloudflare)
+    cf_connecting_ip = request.headers.get("CF-Connecting-IP")
+    if cf_connecting_ip:
+        return cf_connecting_ip
+
+    # 2. Standard header used by most proxies and load balancers
+    x_forwarded_for = request.headers.get("X-Forwarded-For")
+    if x_forwarded_for:
+        # X-Forwarded-For can contain a comma-separated list of IPs.
+        # The first IP in the list is the original client IP.
+        real_ip = x_forwarded_for.split(",")[0].strip()
+        return real_ip
+
+    # 3. Another common proxy header (often used by Nginx)
+    x_real_ip = request.headers.get("X-Real-IP")
+    if x_real_ip:
+        return x_real_ip
+
+    # 4. Fallback: Direct connection IP (works on localhost or exposed servers)
+    if request.client and request.client.host:
+        return request.client.host
+
+    # 5. Failsafe default if everything else is missing
+    return "Unknown"

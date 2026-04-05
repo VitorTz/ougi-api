@@ -17,7 +17,7 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
     
     
-def create_jwt_access_token(user_id: UUID | str, role: str) -> AccessTokenCreate:
+def create_jwt_access_token(user_id: str, role: str) -> AccessTokenCreate:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=Constants.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     payload = {
