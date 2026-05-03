@@ -14,10 +14,6 @@ def seconds_until(target: datetime) -> int:
 
 
 def is_impostor_name(username: str) -> bool:
-    """
-    Detects if a user is trying to impersonate a celestial entity.
-    Returns True if the name is forbidden, False if it is safe.
-    """
     # 1. Lowercase and remove all non-alphanumeric characters (including spaces, _, -)
     clean_name = re.sub(r'[^a-z0-9]', '', username.lower())
     

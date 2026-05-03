@@ -5,7 +5,7 @@ from asyncpg import Connection
 from src.ratelimit import limiter
 
 
-router = APIRouter(dependencies=[Depends(require_admin_access)])
+router = APIRouter(prefix="/admin", tags=['admin'], dependencies=[Depends(require_admin_access)])
 
 
 @router.post("/refresh-mv-catalog", status_code=status.HTTP_200_OK)

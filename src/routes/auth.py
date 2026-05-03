@@ -17,7 +17,7 @@ from src.ratelimit import limiter
 import asyncpg
 
 
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=['auth'])
 
 
 CREDENTIALS_EXCEPTION = HTTPException(

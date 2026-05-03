@@ -21,12 +21,39 @@ class Constants:
     MAX_REQUESTS = 120 if os.getenv("ENV", "DEV") == "PROD" else 999_999_999
     WINDOW = 30
 
-    RESTRICTED_NAMES = {
+    RESTRICTED_NAMES = {        
         "ougi",
-        "admin",
+        "admin", 
+        "adm", 
+        "administrator", 
+        "root", 
+        "sysadmin", 
+        "owner", 
+        "founder", 
+        "ceo",
+        "mod", 
         "moderator", 
         "moderador", 
+        "dev", 
+        "developer", 
+        "creator",
+        "staff", 
+        "team", 
+        "equipe", 
+        "support", 
+        "suporte", 
+        "help", 
+        "helpdesk",
         "system", 
-        "suporte",
-        "support"
+        "sys", 
+        "bot",
+        "automod", 
+        "server", 
+        "webmaster",        
+        "official", 
+        "oficial", 
+        "verified", 
+        "verificado", 
+        "security", 
+        "seguranca"
     }

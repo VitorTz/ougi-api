@@ -7,7 +7,7 @@ from src.db import db_connection
 from src.ratelimit import limiter
 
 
-router = APIRouter()
+router = APIRouter(prefix='/manhwas', tags=['manhwas'])
 
 
 @router.get("/", response_model=ManhwaCatalogResponse)

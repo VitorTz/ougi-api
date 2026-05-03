@@ -8,7 +8,11 @@ from src.db import db_connection
 from src.ratelimit import limiter
 
 
-router = APIRouter(dependencies=[Depends(require_admin_access)])
+router = APIRouter(
+    prefix='/logs',
+    tags=['logs'],
+    dependencies=[Depends(require_admin_access)]
+)
 
 
 @router.get("/", response_model=list[SystemLogResponse])

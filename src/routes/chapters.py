@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 
 
-router = APIRouter()
+router = APIRouter(prefix='/chapters', tags=['chapters'])
 
 
 @router.get(

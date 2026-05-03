@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, APIRouter
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from src.constants import Constants
@@ -21,10 +21,10 @@ import uvicorn
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"[API] [STARTING {Constants.API_NAME}]")    
+    print(f"[API] [STARTING {Constants.API_NAME}]")
     
     # [PostgreSql INIT]
-    await db.db_connect()    
+    await db.db_connect()
 
     print(f"[API] [{Constants.API_NAME} STARTED]")
 
@@ -79,16 +79,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 ############################ ROUTES #############################
 
-@app.get("/api/v1")
+api_v1_router = APIRouter(prefix="/api/v1")
+
+@api_v1_router.get("")
 @limiter.limit("32/minute")
 def read_root(request: Request):
     return {"status": "ok"}
 
 
-app.include_router(manhwas.router, prefix='/api/v1/manhwas', tags=['manhwas'])
-app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
-app.include_router(logs.router, prefix='/api/v1/logs', tags=['logs'])
-app.include_router(admin.router, prefix='/api/v1/admin', tags=['admin'])
+api_v1_router.include_router(admin.router)
+api_v1_router.include_router(auth.router)
+api_v1_router.include_router(manhwas.router)
+api_v1_router.include_router(logs.router)
+
+app.include_router(api_v1_router)
+
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -102,4 +107,3 @@ if __name__ == "__main__":
         limit_concurrency=1000,
         timeout_keep_alive=5
     )
-    
