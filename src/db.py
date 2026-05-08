@@ -38,6 +38,5 @@ async def db_connection():
     global pool
     if not pool:
         raise RuntimeError("Database pool not initialized")
-    
     async with pool.acquire() as conn:
         yield conn

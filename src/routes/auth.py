@@ -38,8 +38,8 @@ async def get_me(
     user: Optional[UserPublicResponse] = await users_table.get_user_by_id(user_id, conn)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail='User not found'
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail='User account no longer exists or is invalid.'
         )
     return user
 
@@ -79,7 +79,7 @@ async def login(
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized"
+            detail="Invalid credentials"
         )
     
     user: UserPublicResponse = UserPublicResponse(user_login_data)
@@ -113,6 +113,7 @@ async def login(
     )
     
     return user
+
 
 @router.post("/signup", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("5/minute")

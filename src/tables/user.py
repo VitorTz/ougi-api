@@ -1,4 +1,5 @@
-from src.schemas.user import UserPublicResponse, UserCreate
+from src.schemas.user import UserPublicResponse, UserCreate, UserRole
+from src.exceptions import DatabaseException
 from asyncpg import Connection
 from typing import Optional
 
@@ -25,7 +26,8 @@ async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicR
             FROM
                 users u
             WHERE
-                id = $1 AND is_active IS TRUE
+                id = $1 
+                AND is_active IS TRUE
         """,
         user_id
     )
@@ -77,3 +79,65 @@ async def create_user(user: UserCreate, conn: Connection):
         user.is_adult
     )
 
+
+async def set_role_to_user(user_id: str, role: UserRole, conn: Connection) -> bool:
+    query = """
+        UPDATE 
+            users 
+        SET        
+            role = $1
+        WHERE
+            id = $2
+        RETURNING 
+            id;
+    """
+    try:
+        row = await conn.fetchval(
+            query,
+            role.value,
+            user_id
+        )
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred while updating the user role.",
+            original_error=e,
+            query=query,
+            params=[role.value, user_id],
+            additional_context={
+                "action": "set_role_to_user", 
+                "user_id": str(user_id), 
+                "role": role.value
+            }
+        )
+    
+    return row is not None
+
+
+async def ban_user(user_id: str, conn: Connection) -> bool:
+    query = """
+        UPDATE 
+            users 
+        SET
+            is_banned = TRUE
+        WHERE
+            id = $1
+        RETURNING id;
+    """
+    try:
+        row = await conn.fetchval(
+            query,
+            user_id
+        )
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred while banning user.",
+            original_error=e,
+            query=query,
+            params=[user_id],
+            additional_context={
+                "action": "ban_user", 
+                "user_id": str(user_id)
+            }
+        )
+    
+    return row is not None

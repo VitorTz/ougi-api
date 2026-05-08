@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Query, status, Depends, Request
+from fastapi import APIRouter, Query, status, Depends, Request, Path
 from src.schemas.manhwas import ManhwaCatalogResponse
+from src.schemas.chapter import ChapterResponse
 from fastapi.exceptions import HTTPException
+from src.tables import chapters as chapter_table
 from typing import Optional
 from asyncpg import Connection
 from src.db import db_connection
@@ -129,3 +131,29 @@ async def search_manhwa(
     rows = await conn.fetch(query, *params)
 
     return [ManhwaCatalogResponse(**r) for r in rows]
+
+
+@router.get(
+    "/{slug}/chapters", 
+    response_model=list[ChapterResponse],
+    tags=["Chapters"]
+)
+@limiter.limit("32/minute")
+async def list_manhwa_chapters(
+    request: Request,
+    slug: str = Path(...),
+    is_published: Optional[bool] = Query(default=True, description="Filter by publish status"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    conn: Connection = Depends(db_connection),
+):
+    """
+    List all chapters for a given manhwa, ordered by chapter number descending.
+    """
+    return await chapter_table.get_chapters_from_manhwa(
+        slug,
+        is_published,
+        limit,
+        offset,
+        conn
+    )

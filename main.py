@@ -6,6 +6,9 @@ from src.routes import manhwas
 from src.routes import auth
 from src.routes import logs
 from src.routes import admin
+from src.routes import chapters
+from src.routes import moderator
+from src.routes import audit_log
 from src.exceptions import DatabaseException
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -62,10 +65,20 @@ app.state.limiter = limiter
 ############################ Middlewares #############################
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-# app.add_middleware(
-#     TrustedHostMiddleware, 
-#     allowed_hosts=["localhost"]
-# )
+if Constants.IS_PRODUCTION:
+    app.add_middleware(
+    TrustedHostMiddleware, 
+        allowed_hosts=[
+            # "ononougi.com", 
+            # "www.ononougi.com", 
+            # "api.ononougi.com"
+        ]
+    )
+else:
+    app.add_middleware(
+        TrustedHostMiddleware, 
+        allowed_hosts=["localhost", "127.0.0.1"]
+    )    
 
 
 ############################ Exception Handlers #############################
@@ -81,16 +94,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
+
 @api_v1_router.get("")
 @limiter.limit("32/minute")
 def read_root(request: Request):
     return {"status": "ok"}
 
 
-api_v1_router.include_router(admin.router)
 api_v1_router.include_router(auth.router)
+api_v1_router.include_router(admin.router)
+api_v1_router.include_router(moderator.router)
 api_v1_router.include_router(manhwas.router)
+api_v1_router.include_router(chapters.router)
 api_v1_router.include_router(logs.router)
+api_v1_router.include_router(audit_log.router)
+
 
 app.include_router(api_v1_router)
 
