@@ -1,9 +1,10 @@
-from pydantic import BaseModel, Field, field_validator, EmailStr
+from pydantic import BaseModel, Field, field_validator, EmailStr, ConfigDict
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
 from enum import Enum
-from src.security.argon import get_password_hash
+from src.security.hashing import PasswordHasher
+from src.dependencies import get_password_hasher
 
 
 class UserRole(str, Enum):
@@ -12,9 +13,6 @@ class UserRole(str, Enum):
     moderator = 'moderator'
     user = 'user'
 
-# ---------------------------------------------------------
-# Base Model (Shared fields)
-# ---------------------------------------------------------
 
 class UserBase(BaseModel):
 
@@ -23,10 +21,6 @@ class UserBase(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     banner_url: Optional[str] = None    
 
-
-# ---------------------------------------------------------
-# Create Model (Used for Registration)
-# ---------------------------------------------------------
 
 class UserCreate(UserBase):
 
@@ -37,22 +31,14 @@ class UserCreate(UserBase):
     @field_validator("password", mode="after")
     @classmethod
     def apply_password_hash(cls, v: str) -> str:
-        """
-        Hashes the password automatically after it passes the minimum length validation.
-        The resulting object will store the argon2 hash instead of the raw string.
-        """
-        hashed = get_password_hash(v)
-        
-        # Ensure the hashing process was successful
+        hasher: PasswordHasher = get_password_hasher()
+        hashed: str = hasher.get_password_hash(v)
+    
         if not hashed:
             raise ValueError("Failed to hash the password.")
             
         return hashed
 
-# ---------------------------------------------------------
-# Update Model (Used for Profile Edits)
-# All fields are optional since it's typically a PATCH request
-# ---------------------------------------------------------
 
 class UserUpdate(BaseModel):
 
@@ -60,11 +46,6 @@ class UserUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     banner_url: Optional[str] = None
 
-
-# ---------------------------------------------------------
-# Full Response Model (Used for the user's OWN profile)
-# Includes sensitive data like email and birthdate, but EXCLUDES password_hash
-# ---------------------------------------------------------
 
 class UserPrivateResponse(UserBase):
 
@@ -81,11 +62,6 @@ class UserPrivateResponse(UserBase):
     updated_at: Optional[datetime] = None
 
 
-# ---------------------------------------------------------
-# Public Response Model (Used when viewing OTHER users' profiles)
-# Strips out sensitive information completely
-# ---------------------------------------------------------
-
 class UserPublicResponse(BaseModel):
 
     id: UUID
@@ -99,3 +75,5 @@ class UserPublicResponse(BaseModel):
     is_adult: bool
     created_at: datetime
     last_seen_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

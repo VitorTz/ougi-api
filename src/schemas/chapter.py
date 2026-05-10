@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
+
 
 class ChapterBase(BaseModel):
 
@@ -26,6 +27,7 @@ class ChapterUpdate(BaseModel):
     title: Optional[str] = None
     is_published: Optional[bool] = None
 
+
 class ChapterResponse(ChapterBase):
 
     id: UUID
@@ -33,3 +35,5 @@ class ChapterResponse(ChapterBase):
     views: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

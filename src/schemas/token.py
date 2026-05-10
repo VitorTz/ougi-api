@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -40,3 +40,5 @@ class SessionResponse(BaseModel):
     session_started_at: datetime
     expires_at: datetime
     is_current_session: bool = False
+
+    model_config = ConfigDict(from_attributes=True)

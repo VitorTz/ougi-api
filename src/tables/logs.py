@@ -1,7 +1,7 @@
 from src.schemas.log import SystemLogResponse
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from src.db import pool 
+from src import db
 import json
 
 
@@ -52,7 +52,7 @@ async def insert_log(
     
     # Acquire a connection from the global pool automatically 
     # and release it back when the block exits.
-    async with pool.acquire() as conn:
+    async with db.pool.acquire() as conn:
         log_id = await conn.fetchval(
             query,
             user_id,
@@ -126,7 +126,7 @@ async def get_logs(
         OFFSET ${len(params)};
     """
     
-    async with pool.acquire() as conn:
+    async with db.pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
     
     return [SystemLogResponse(**dict(row)) for row in rows]
@@ -158,9 +158,8 @@ async def get_log_by_id(log_id: UUID) -> Optional[SystemLogResponse]:
             id = $1;
     """
     
-    async with pool.acquire() as conn:
+    async with db.pool.acquire() as conn:
         row = await conn.fetchrow(query, log_id)
     
     if row:
         return SystemLogResponse(**dict(row))
-    return None

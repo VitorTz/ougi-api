@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -39,3 +39,5 @@ class ManhwaCatalogResponse(BaseModel):
     latest_chapter_num: Optional[float] = None
     last_chapter_updated_at: Optional[datetime] = None
     chapter_count: int
+
+    model_config = ConfigDict(from_attributes=True)

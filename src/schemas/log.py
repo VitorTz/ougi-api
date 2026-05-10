@@ -1,4 +1,4 @@
-from pydantic import BaseModel, IPvAnyAddress
+from pydantic import BaseModel, IPvAnyAddress, ConfigDict
 from typing import Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -20,3 +20,5 @@ class SystemLogResponse(BaseModel):
     execution_context: Optional[Dict[str, Any]] = None
     stack_trace: Optional[str] = None
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

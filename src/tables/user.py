@@ -34,42 +34,40 @@ async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicR
     return UserPublicResponse(**row) if row else None
 
 
-async def get_user_login_data(identifier: str, conn: Connection) -> dict:
-    row = await conn.fetchrow(
-        f"""
-            UPDATE
-                users
-            SET
-                last_seen_at = NOW()
-            WHERE
-                (username = TRIM($1) OR email = TRIM($1))
-                AND is_active = TRUE
-                AND is_banned = FALSE
-            RETURNING
-                {USER_COLUMNS},
-                password_hash;
-        """,
-        identifier
-    )
-    
-    return dict(row)
+async def get_user_login_data(identifier: str, conn: Connection) -> dict | None:
+    query = f"""
+        UPDATE
+            users
+        SET
+            last_seen_at = NOW()
+        WHERE
+            (username = TRIM($1) OR email = TRIM($1))
+            AND is_active = TRUE
+            AND is_banned = FALSE
+        RETURNING
+            {USER_COLUMNS},
+            password_hash;
+    """
+    row = await conn.fetchrow(query, identifier)
+    if row: return dict(row)
 
 
 async def create_user(user: UserCreate, conn: Connection):
+    query = """
+        INSERT INTO users (
+            username,
+            email,
+            password_hash,
+            avatar_url,
+            bio,
+            banner_url,
+            is_adult
+        )
+        VALUES
+            (TRIM($1), $2, $3, TRIM($4), $5, $6)
+    """
     await conn.execute(
-        """
-            INSERT INTO users (
-                username,
-                email,
-                password_hash,
-                avatar_url,
-                bio,
-                banner_url,
-                is_adult
-            )
-            VALUES
-                (TRIM($1), $2, $3, TRIM($4), $5, $6)
-        """,
+        query,
         user.username,
         user.email,
         user.password,
@@ -124,10 +122,7 @@ async def ban_user(user_id: str, conn: Connection) -> bool:
         RETURNING id;
     """
     try:
-        row = await conn.fetchval(
-            query,
-            user_id
-        )
+        row = await conn.fetchval(query, user_id)
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while banning user.",

@@ -9,22 +9,16 @@ from src.schemas.token import AccessTokenCreate, RefreshTokenCreate
 from src.tables import user as users_table
 from src.tables import tokens as tokens_table
 from src.security import jwt
-from src.security import argon
 from src.security import cookies
-from src.exceptions import DatabaseException
+from src.security.hashing import PasswordHasher
+from src.dependencies import get_password_hasher
+from src.exceptions import DatabaseException, CREDENTIALS_EXCEPTION
 from typing import Optional
 from src.ratelimit import limiter
 import asyncpg
 
 
 router = APIRouter(prefix="/auth", tags=['auth'])
-
-
-CREDENTIALS_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-)
 
 
 @router.get("/me", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
@@ -70,19 +64,20 @@ async def login(
     response: Response,
     background_tasks: BackgroundTasks,
     conn: Connection = Depends(db_connection),
+    hasher: PasswordHasher = Depends(get_password_hasher),
     refresh_token: Optional[str] = Cookie(default=None)
 ):
     user_login_data: Optional[dict] = await users_table.get_user_login_data(identifier.identifier, conn)
     if (
         not user_login_data or
-        not argon.verify_password(identifier.password, user_login_data['password_hash'])
+        not hasher.verify_password(identifier.password, user_login_data['password_hash'])
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
     
-    user: UserPublicResponse = UserPublicResponse(user_login_data)
+    user = UserPublicResponse(user_login_data)
     
     old_family_id = None
     if refresh_token:
@@ -104,7 +99,7 @@ async def login(
         new_family_id=new_refresh_token.family_id
     )
     
-    cookies.set_session_token_cookie(
+    cookies.set_session_cookie(
         response, 
         new_access_token.jwt_token,
         new_access_token.expires_at,
@@ -156,7 +151,7 @@ async def create_user(
     
 
 @router.post("/refresh", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
-@limiter.limit("9/minute")
+@limiter.limit("12/minute")
 async def refresh(
     request: Request,
     response: Response,
@@ -185,7 +180,7 @@ async def refresh(
         new_family_id=family_id
     )
     
-    cookies.set_session_token_cookie(
+    cookies.set_session_cookie(
         response, 
         new_access_token.jwt_token,
         new_access_token.expires_at,
@@ -204,17 +199,16 @@ async def logout(
     background_tasks: BackgroundTasks,
     refresh_token: Optional[str] = Cookie(default=None)
 ):
+    cookies.unset_session_cookie(response)
     try:
-        token_family_id: str = jwt.extract_jwt_refresh_token_family_id(refresh_token)    
-    except Exception:
-        pass
-    else:
+        token_family_id: str = jwt.extract_jwt_refresh_token_family_id(refresh_token)
         background_tasks.add_task(
             tokens_table.task_revoke_token_by_family,
             family_id=token_family_id
         )
+    except Exception:
+        pass
         
-    cookies.unset_session_token_cookie(response)
 
 
 @router.delete("/sessions/revoke-all", status_code=status.HTTP_204_NO_CONTENT)
@@ -237,7 +231,6 @@ async def revoke_all_other_sessions(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to verify current session integrity."
             )
-            
-    # Executed synchronously to guarantee the purge before responding
+
     await token_data.revoke_all_other_sessions(user_id, current_family_id, conn)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

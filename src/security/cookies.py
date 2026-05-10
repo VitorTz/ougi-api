@@ -1,6 +1,6 @@
-from fastapi import Cookie, status
+from src.exceptions import CREDENTIALS_EXCEPTION
+from fastapi import Cookie
 from fastapi.responses import Response
-from fastapi.exceptions import HTTPException
 from src.constants import Constants
 from datetime import datetime
 from src.util import seconds_until
@@ -8,26 +8,23 @@ from typing import Optional
 from src.security import jwt
 
 
-CREDENTIALS_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-)
+
+async def require_role(access_token: Optional[str] = Cookie(default=None), *roles: str) -> None:
+    jwt_token: dict = jwt.extract_jwt_token(access_token)
+    role: str | None = jwt_token.get('role')
+    if not role or role not in roles:
+        raise CREDENTIALS_EXCEPTION
 
 
 async def require_admin_access(access_token: Optional[str] = Cookie(default=None)) -> None:
-    jwt_token = jwt.extract_jwt_token(access_token)
-    if jwt_token.get('role') != "admin":
-        raise CREDENTIALS_EXCEPTION
+    require_role(access_token, "admin")
     
 
 async def require_moderator_access(access_token: Optional[str] = Cookie(default=None)) -> None:
-    jwt_token = jwt.extract_jwt_token(access_token)
-    if jwt_token.get('role') not in ("admin", "moderator"):
-        raise CREDENTIALS_EXCEPTION
+    require_role(access_token, "admin", "moderator")
 
 
-def set_session_token_cookie(
+def set_session_cookie(
     response: Response, 
     access_token_jwt: str,
     access_token_expires_at: datetime,
@@ -64,7 +61,7 @@ def set_session_token_cookie(
     )
 
     
-def unset_session_token_cookie(response: Response):
+def unset_session_cookie(response: Response):
     if Constants.IS_PRODUCTION:
         samesite_policy = "none"
         secure_policy = True

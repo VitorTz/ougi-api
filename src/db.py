@@ -1,3 +1,6 @@
+from src.schemas.views import AllowedMaterializedViews
+from src.exceptions import DatabaseException
+from asyncpg import Connection
 from dotenv import load_dotenv
 import asyncpg
 import os
@@ -40,3 +43,37 @@ async def db_connection():
         raise RuntimeError("Database pool not initialized")
     async with pool.acquire() as conn:
         yield conn
+
+
+async def refresh_view(view: AllowedMaterializedViews, conn: Connection) -> None:
+    """
+    Refreshes a materialized view concurrently.
+    Guaranteed safe from SQL Injection because 'view' is restricted by the Enum.
+    """
+    if not isinstance(view, AllowedMaterializedViews):
+        raise DatabaseException(
+            client_message="An unexpected error occurred while refreshing the data view.",
+            original_error=e,
+            query=None,
+            params=None,
+            additional_context={
+                "action": "refresh_materialized_view",
+                "view_name": str(view)
+            }
+        )
+    
+    query = f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view.value};"
+    
+    try:
+        await conn.execute(query)
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred while refreshing the data view.",
+            original_error=e,
+            query=query,
+            params=None,
+            additional_context={
+                "action": "refresh_materialized_view",
+                "view_name": view.value
+            }
+        )

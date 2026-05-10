@@ -12,8 +12,7 @@ router = APIRouter(prefix='/chapters', tags=['chapters'])
 
 @router.get(
     "/manhwas/{manhwa_id}/chapters", 
-    response_model=list[ChapterResponse],
-    tags=["Chapters"]
+    response_model=list[ChapterResponse]
 )
 @limiter.limit("32/minute")
 async def list_manhwa_chapters(
@@ -36,7 +35,7 @@ async def list_manhwa_chapters(
     )
 
 
-@router.get("/chapters/{chapter_id}", response_model=ChapterResponse, tags=["Chapters"])
+@router.get("/chapters/{chapter_id}", response_model=ChapterResponse)
 @limiter.limit("32/minute")
 async def get_chapter(
     request: Request,
@@ -52,7 +51,7 @@ async def get_chapter(
     return chapter
 
 
-@router.patch("/chapters/{chapter_id}", response_model=ChapterResponse, tags=["Chapters"])
+@router.patch("/chapters/{chapter_id}", response_model=ChapterResponse)
 @limiter.limit("32/minute")
 async def update_chapter(
     request: Request,
@@ -74,7 +73,7 @@ async def update_chapter(
     return chapter
 
 
-@router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Chapters"])
+@router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def delete_chapter(
     request: Request,
@@ -89,7 +88,7 @@ async def delete_chapter(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found.")
 
 
-@router.post("/chapters/{chapter_id}/view", status_code=status.HTTP_200_OK, tags=["Chapters"])
+@router.post("/chapters/{chapter_id}/view", status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def increment_chapter_view(
     request: Request,

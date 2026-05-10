@@ -1,7 +1,10 @@
 from fastapi import Request
 from src.constants import Constants
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
+from typing import Any
+import math
+import unicodedata
 import re
 
 
@@ -74,3 +77,101 @@ def get_real_client_ip(request: Request) -> str:
 
     # 5. Failsafe default if everything else is missing
     return "Unknown"
+
+
+def is_of_legal_age(birthdate: date, legal_age: int = 18) -> bool:
+    """
+    Checks if a user is of legal age (default 18+) based on their birthdate.
+    Essential for restricting access to adult manhwa content.
+    """
+    today = date.today()
+    # Subtract years, and subtract 1 more if the current date is before their birthday this year
+    age = today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
+    return age >= legal_age
+
+
+def is_valid_image_signature(header_bytes: bytes) -> bool:
+    """
+    Validates if an uploaded file is a genuine image (JPEG, PNG, WEBP, GIF)
+    by checking its 'magic numbers' (file signatures).
+    Pass the first 12 bytes of the file (e.g., file.read(12)) to this function.
+    """
+    signatures = {
+        b'\xff\xd8\xff': 'jpeg',
+        b'\x89PNG\r\n\x1a\n': 'png',
+        b'GIF87a': 'gif',
+        b'GIF89a': 'gif',
+    }
+    
+    # WEBP signatures have 'RIFF' at the start and 'WEBP' at bytes 8-11
+    if header_bytes.startswith(b'RIFF') and header_bytes[8:12] == b'WEBP':
+        return True
+        
+    for signature in signatures:
+        if header_bytes.startswith(signature):
+            return True
+            
+    return False
+
+
+def generate_slug(title: str) -> str:
+    """
+    Creates an SEO-friendly URL slug from a manhwa title.
+    Example: "The Beginning After The End!" -> "the-beginning-after-the-end"
+    """
+    # Normalize to NFD to separate characters from their accents/diacritics
+    normalized = unicodedata.normalize('NFKD', title).encode('ASCII', 'ignore').decode('utf-8')
+    normalized = normalized.lower()
+    
+    # Replace any sequence of non-alphanumeric characters with a single hyphen
+    slug = re.sub(r'[^a-z0-9]+', '-', normalized)
+    
+    # Strip leading or trailing hyphens
+    return slug.strip('-')
+
+
+def get_pagination_metadata(total_items: int, limit: int, offset: int) -> dict[str, Any]:
+    """
+    Generates standardized pagination metadata to attach to your API responses.
+    This makes it infinitely easier for the frontend to render 'Next/Prev' buttons.
+    """
+    safe_limit = limit if limit > 0 else 1 
+    
+    current_page = math.floor(offset / safe_limit) + 1
+    total_pages = math.ceil(total_items / safe_limit)
+    
+    return {
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "current_page": current_page,
+        "has_next": current_page < total_pages,
+        "has_previous": current_page > 1,
+        "limit": limit,
+        "offset": offset
+    }
+
+
+def redact_sensitive_data(payload: dict) -> dict:
+    """
+    Recursively scans a dictionary and masks sensitive fields (like passwords or tokens).
+    Extremely useful before saving JSON payloads to your audit logs or system logs.
+    """
+    sensitive_keys = {
+        'password', 
+        'password_hash', 
+        'token', 
+        'access_token', 
+        'refresh_token', 
+        'credit_card'
+    }
+    redacted = {}
+    
+    for key, value in payload.items():
+        if isinstance(value, dict):
+            redacted[key] = redact_sensitive_data(value)
+        elif key.lower() in sensitive_keys:
+            redacted[key] = "********"
+        else:
+            redacted[key] = value
+            
+    return redacted

@@ -9,12 +9,13 @@ from src.routes import admin
 from src.routes import chapters
 from src.routes import moderator
 from src.routes import audit_log
+from src.routes import identicon
 from src.exceptions import DatabaseException
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
+from src import middlewares
 from src import db
 from src import handlers
 from src.ratelimit import limiter
@@ -48,37 +49,27 @@ app = FastAPI(
 
 app.state.limiter = limiter
 
-# origins = [
-#     "http://localhost:3000",   # Default port for Create React App
-#     "http://localhost:5173",   # Default port for Vite
-# ]
+if Constants.IS_PRODUCTION:
+    app.add_middleware(middlewares.HTTPSRedirectMiddleware)
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=origins,
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(middlewares.SecurityHeadersMiddleware)
+app.add_middleware(middlewares.RequestIDMiddleware)
 
-
-############################ Middlewares #############################
-
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 if Constants.IS_PRODUCTION:
     app.add_middleware(
-    TrustedHostMiddleware, 
-        allowed_hosts=[
-            # "ononougi.com", 
-            # "www.ononougi.com", 
-            # "api.ononougi.com"
-        ]
+        CORSMiddleware,
+        allow_origins=[
+            "https://ononougi.com",
+            "https://www.ononougi.com",
+        ],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
     )
-else:
-    app.add_middleware(
-        TrustedHostMiddleware, 
-        allowed_hosts=["localhost", "127.0.0.1"]
-    )    
+
+app.add_middleware(middlewares.BotDetectionMiddleware)
+app.add_middleware(middlewares.RequestSizeLimitMiddleware, max_upload_size=10 * 1024 * 1024)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 ############################ Exception Handlers #############################
@@ -106,6 +97,7 @@ api_v1_router.include_router(admin.router)
 api_v1_router.include_router(moderator.router)
 api_v1_router.include_router(manhwas.router)
 api_v1_router.include_router(chapters.router)
+api_v1_router.include_router(identicon.router)
 api_v1_router.include_router(logs.router)
 api_v1_router.include_router(audit_log.router)
 

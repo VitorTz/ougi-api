@@ -1,20 +1,12 @@
 from datetime import datetime, timezone, timedelta
-from fastapi.exceptions import HTTPException
 from typing import Optional, Any
-from fastapi import status
+from src.exceptions import CREDENTIALS_EXCEPTION
 from src.schemas.token import AccessTokenCreate, RefreshTokenCreate
 from src.constants import Constants
 from uuid import UUID
 from src import util
 import jwt
 
-
-
-CREDENTIALS_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-)
     
     
 def create_jwt_access_token(user_id: str, role: str) -> AccessTokenCreate:
@@ -122,8 +114,7 @@ def extract_jwt_refresh_token_family_id(jwt_refresh_token: str) -> str:
 
 
 def calculate_token_ttl(token: str | None) -> int:
-    if not token:
-        return 0
+    if not token: return 0
     
     try:
         payload = jwt.decode(

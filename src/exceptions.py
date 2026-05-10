@@ -1,5 +1,15 @@
+from fastapi import status
+from fastapi.exceptions import HTTPException
 from typing import Any, Optional, Dict
 import traceback
+
+
+
+CREDENTIALS_EXCEPTION = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
 
 
 class DatabaseException(Exception):
@@ -16,21 +26,14 @@ class DatabaseException(Exception):
         additional_context: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None
     ):
-        # Initialize the base Exception with the original error string
         super().__init__(str(original_error))
-        
-        # 1. Safe message to be sent to the frontend
         self.client_message = client_message
-        
-        # 2. Detailed data for database logging
         self.original_error = original_error
         self.error_type = type(original_error).__name__
         self.query = query
         self.params = params
         self.context = additional_context or {}
         self.user_id = user_id
-        
-        # Automatically capture the full traceback as a string
         self.traceback_str = "".join(
             traceback.format_exception(
                 type(original_error), 
