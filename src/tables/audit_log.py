@@ -1,8 +1,8 @@
-
-from src.exceptions import DatabaseException
+from src.tables import logs as logs_table
 from typing import Optional, Any
 from asyncpg import Connection
 from src import db
+import traceback
 import json
 
 
@@ -17,7 +17,8 @@ async def insert_audit_log(
 ) -> None:
     """
     Inserts a new record into the audit_log table.
-    Returns the UUID of the newly created log entry.
+    If it fails, it catches the exception and logs it into the system_logs table 
+    reusing the same database connection.
     """
     query = """
         INSERT INTO audit_log (
@@ -30,42 +31,49 @@ async def insert_audit_log(
             ip_address
         ) VALUES (
             $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::inet
-        ) RETURNING id;
+        );
     """
     
     old_data_json = json.dumps(old_data) if old_data is not None else None
     new_data_json = json.dumps(new_data) if new_data is not None else None
 
-    try:
-        async with db.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                actor_id,
-                action,
-                table_name,
-                record_id,
-                old_data_json,
-                new_data_json,
-                ip_address
+    params = (
+        actor_id,
+        action,
+        table_name,
+        record_id,
+        old_data_json,
+        new_data_json,
+        ip_address
+    )
+
+    async with db.pool.acquire() as conn:
+        try:
+            await conn.execute(query, *params)
+        except Exception as e:
+            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            await logs_table.insert_log(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                error_level="ERROR",
+                user_id=actor_id,
+                failed_query=query,
+                query_parameters={
+                    "actor_id": actor_id,
+                    "action": action,
+                    "table_name": table_name,
+                    "record_id": record_id,
+                    "old_data": old_data,
+                    "new_data": new_data,
+                    "ip_address": ip_address
+                },
+                execution_context={
+                    "action": "insert_audit_log",
+                    "description": "Failed to insert audit log. Reusing connection for system log."
+                },
+                stack_trace=tb_str,
+                conn=conn
             )
-    except Exception as e:
-        raise DatabaseException(
-            client_message="Failed to register audit log.",
-            original_error=e,
-            query=query,
-            params=[
-                actor_id, 
-                action, 
-                table_name, 
-                record_id, 
-                old_data_json, 
-                new_data_json, 
-                ip_address
-            ],
-            additional_context={
-                "action": "insert_audit_log"
-            }
-        )
     
 
 async def get_audit_logs(
@@ -132,9 +140,15 @@ async def get_audit_logs(
 async def get_audit_log_by_id(log_id: str, conn: Connection) -> Optional[dict]:
     query = """
         SELECT 
-            id, actor_id, action, table_name, record_id, 
-            old_data::TEXT as old_data, new_data::TEXT as new_data, 
-            ip_address::TEXT as ip_address, created_at
+            id, 
+            actor_id, 
+            action, 
+            table_name, 
+            record_id, 
+            old_data::TEXT as old_data, 
+            new_data::TEXT as new_data, 
+            ip_address::TEXT as ip_address, 
+            created_at
         FROM 
             audit_log
         WHERE 

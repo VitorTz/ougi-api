@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Request, Response, Path
-from src.identicon import generate_identicon
-import hashlib
+from fastapi import APIRouter, Request, Response, Path, status
+from src.constants import Constants
+from src import identicon
 
 
 router = APIRouter(prefix="/identicons", tags=["identicons"])
@@ -9,14 +9,59 @@ router = APIRouter(prefix="/identicons", tags=["identicons"])
 @router.get("/{username}/avatar.svg", response_class=Response)
 async def get_user_identicon(
     request: Request,
-    username: str = Path(..., description="The username to generate the avatar for"),
+    username: str = Path(
+        ..., 
+        description="The username to generate the avatar for", 
+        max_length=32
+    )
 ):
-    etag = f'"{hashlib.md5(username.encode()).hexdigest()}"'
+    etag: str = identicon.generate_etag(username)
 
-    if request.headers.get("If-None-Match") == etag:
-        return Response(status_code=304, headers={"ETag": etag})
+    
+    if Constants.IS_PRODUCTION and request.headers.get("If-None-Match") == etag:
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED, 
+            headers={"ETag": etag}
+        )
+    
+    svg_content: str = identicon.generate_avatar_identicon(
+        username, 
+        Constants.DEFAULT_AVATAR_SIZE
+    )
 
-    svg_content = generate_identicon(username)
+    return Response(
+        content=svg_content,
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "ETag": etag,
+        }
+    )
+
+
+@router.get("/{username}/banner.svg", response_class=Response)
+async def get_user_identicon(
+    request: Request,
+    username: str = Path(
+        ..., 
+        description="The username to generate the banner for", 
+        max_length=32
+    )
+):
+    etag: str = identicon.generate_etag(username)
+
+    if Constants.IS_PRODUCTION and request.headers.get("If-None-Match") == etag:
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED, 
+            headers={"ETag": etag}
+        )
+    
+    svg_content: str = identicon.generate_banner_identicon(
+        username,
+        Constants.DEFAULT_BANNER_WIDTH,
+        Constants.DEFAULT_BANNER_HEIGHT
+    )
+
     return Response(
         content=svg_content,
         media_type="image/svg+xml",

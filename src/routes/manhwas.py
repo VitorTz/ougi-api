@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Query, status, Depends, Request, Path
 from src.schemas.manhwas import ManhwaCatalogResponse
-from src.schemas.chapter import ChapterResponse
 from fastapi.exceptions import HTTPException
-from src.tables import chapters as chapter_table
 from typing import Optional
 from asyncpg import Connection
 from src.db import db_connection
 from src.ratelimit import limiter
+from src.schemas.pagination import Pagination
+from src.tables import manwhas as manhwas_table
 
 
 router = APIRouter(prefix='/manhwas', tags=['manhwas'])
@@ -16,52 +16,21 @@ router = APIRouter(prefix='/manhwas', tags=['manhwas'])
 @limiter.limit("32/minute")
 async def get_manhwa(
     request: Request,
-    id: Optional[str] = Query(default=None),
-    title: Optional[str] = Query(default=None),
+    id: str = Query(default=None),
     conn: Connection = Depends(db_connection),
-):
-    if not id and not title:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Either 'id' or 'title' must be provided."
-        )
-
-    if id:
-        row = await conn.fetchrow(
-            """
-                SELECT 
-                    * 
-                FROM 
-                    mv_manhwa_catalog 
-                WHERE 
-                    id = $1::uuid
-                """,
-            id,
-        )
-    else:
-        row = await conn.fetchrow(
-            """
-                SELECT 
-                    * 
-                FROM 
-                    mv_manhwa_catalog 
-                WHERE 
-                    title % $1 
-                ORDER BY 
-                    similarity(title, $1) DESC 
-                LIMIT 
-                    1
-            """,
-            title,
-        )
+):    
+    row = await manhwas_table.get_manhwa_by_id(id, conn)
 
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manhwa not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Manhwa not found."
+        )
 
-    return ManhwaCatalogResponse(**row)
+    return ManhwaCatalogResponse(row)
 
 
-@router.get("/search", response_model=list[ManhwaCatalogResponse])
+@router.get("/search", response_model=Pagination[ManhwaCatalogResponse])
 @limiter.limit("32/minute")
 async def search_manhwa(
     request: Request,
@@ -130,30 +99,9 @@ async def search_manhwa(
 
     rows = await conn.fetch(query, *params)
 
-    return [ManhwaCatalogResponse(**r) for r in rows]
-
-
-@router.get(
-    "/{slug}/chapters", 
-    response_model=list[ChapterResponse],
-    tags=["Chapters"]
-)
-@limiter.limit("32/minute")
-async def list_manhwa_chapters(
-    request: Request,
-    slug: str = Path(...),
-    is_published: Optional[bool] = Query(default=True, description="Filter by publish status"),
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    conn: Connection = Depends(db_connection),
-):
-    """
-    List all chapters for a given manhwa, ordered by chapter number descending.
-    """
-    return await chapter_table.get_chapters_from_manhwa(
-        slug,
-        is_published,
-        limit,
-        offset,
-        conn
+    return Pagination(
+        items=[ManhwaCatalogResponse(r) for r in rows],
+        limit=limit,
+        offset=offset
     )
+

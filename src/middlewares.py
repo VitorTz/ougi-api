@@ -56,9 +56,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "payment=()"
         )
         
-        # Remover header sensível do Uvicorn
-        response.headers.pop("server", None)
-        
         return response
 
 

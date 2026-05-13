@@ -34,10 +34,6 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Handles Pydantic validation errors, returning a cleaner 
-    response format instead of the default FastAPI structure.
-    """
     errors = []
     for error in exc.errors():
         field = " -> ".join(str(loc) for loc in error.get("loc", []))
@@ -81,9 +77,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """
-    Ensures all standard HTTPExceptions return a consistent JSON structure.
-    """
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.detail}

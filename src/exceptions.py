@@ -63,3 +63,9 @@ class DatabaseException(Exception):
             "execution_context": self.context,
             "stack_trace": self.traceback_str
         }
+    
+
+class DuplicateRecordError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)

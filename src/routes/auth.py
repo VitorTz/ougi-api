@@ -12,9 +12,10 @@ from src.security import jwt
 from src.security import cookies
 from src.security.hashing import PasswordHasher
 from src.dependencies import get_password_hasher
-from src.exceptions import DatabaseException, CREDENTIALS_EXCEPTION
+from src.exceptions import DatabaseException, CREDENTIALS_EXCEPTION, DuplicateRecordError
 from typing import Optional
 from src.ratelimit import limiter
+from src import identicon
 import asyncpg
 
 
@@ -45,10 +46,6 @@ async def check_session_pulse(
     access_token: Optional[str] = Cookie(default=None),
     refresh_token: Optional[str] = Cookie(default=None)
 ):
-    """
-    Retorna o tempo de vida restante (TTL) dos tokens em segundos.
-    Útil para o Frontend decidir quando disparar o refresh silencioso.
-    """
     return {
         "access_token_ttl": jwt.calculate_token_ttl(access_token),
         "refresh_token_ttl": jwt.calculate_token_ttl(refresh_token),
@@ -113,41 +110,18 @@ async def login(
 @router.post("/signup", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("5/minute")
 async def create_user(
-    request: Request, 
-    payload: UserCreate, 
+    request: Request,
+    payload: UserCreate,
     conn: Connection = Depends(db_connection)
 ):
     try:
-        await users_table.create_user(payload, conn)    
-    except asyncpg.UniqueViolationError as e:
-        constraint = getattr(e, 'constraint_name', '')        
-        if constraint == "users_username_key":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This username is already taken."
-            )
-        elif constraint == "users_email_key":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This email is already registered."
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="The provided data conflicts with an existing record."
-            )
-    except Exception as e:
-        raise DatabaseException(
-            client_message="An unexpected error occurred while creating the account. Please try again later.",
-            original_error=e,
-            query="INSERT INTO users (Executed via repository layer)",
-            params=payload.model_dump(exclude={"password"}),
-            additional_context={
-                "action": "user_signup",
-                "attempted_username": payload.username,
-                "attempted_email": payload.email
-            }
+        await users_table.user_create(payload, conn)
+    except DuplicateRecordError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.message
         )
+
     
 
 @router.post("/refresh", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
@@ -202,20 +176,22 @@ async def logout(
     cookies.unset_session_cookie(response)
     try:
         token_family_id: str = jwt.extract_jwt_refresh_token_family_id(refresh_token)
+    except Exception:
+        return
+    else:
         background_tasks.add_task(
             tokens_table.task_revoke_token_by_family,
             family_id=token_family_id
         )
-    except Exception:
-        pass
-        
+
 
 
 @router.delete("/sessions/revoke-all", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("5/minute")
 async def revoke_all_other_sessions(
     request: Request,
-    conn: Connection = Depends(db_connection),
+    response: Response,
+    background_tasks: BackgroundTasks,
     access_token: Optional[str] = Cookie(default=None),
     refresh_token: Optional[str] = Cookie(default=None)
 ):
@@ -231,6 +207,11 @@ async def revoke_all_other_sessions(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to verify current session integrity."
             )
-
-    await token_data.revoke_all_other_sessions(user_id, current_family_id, conn)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+        
+    background_tasks.add_task(
+        tokens_table.revoke_all_other_sessions_bg,
+        user_id=user_id,
+        current_family_id=current_family_id
+    )
+    
+    cookies.unset_session_cookie(response)

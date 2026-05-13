@@ -4,7 +4,7 @@ from src.security.cookies import require_admin_access
 from src.schemas.user import UserRole
 from src.tables import user as users_table
 from src.tables import audit_log as audit_log_table
-from src.db import db_connection
+from src.db import db_connection, refresh_view
 from typing import Optional
 from asyncpg import Connection
 from src.ratelimit import limiter
@@ -19,16 +19,16 @@ router = APIRouter(
 )
 
 
-@router.post("/refresh-mv-catalog", status_code=status.HTTP_200_OK)
+@router.post("/refresh-mv-catalog", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def refresh_mv_catalog(request: Request, conn: Connection = Depends(db_connection)):
-    await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_manhwa_catalog;")
+    await refresh_view("mv_manhwa_catalog", conn)
 
 
 # ============================================= 
 # MODERATORS
 # ============================================= 
-@router.post("/moderator/role", status_code=status.HTTP_200_OK)
+@router.post("/moderator/role", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def update_user_role(
     request: Request,

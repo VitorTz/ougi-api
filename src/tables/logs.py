@@ -1,4 +1,5 @@
 from src.schemas.log import SystemLogResponse
+from asyncpg import Connection
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from src import db
@@ -9,7 +10,7 @@ async def insert_log(
     error_type: str,
     error_message: str,
     error_level: str = "ERROR",
-    user_id: Optional[UUID] = None,
+    user_id: Optional[str] = None,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
     request_method: Optional[str] = None,
@@ -17,14 +18,9 @@ async def insert_log(
     failed_query: Optional[str] = None,
     query_parameters: Optional[Dict[str, Any]] = None,
     execution_context: Optional[Dict[str, Any]] = None,
-    stack_trace: Optional[str] = None
-) -> Optional[UUID]:
-    """
-    Inserts a new error log into the system_logs table using the global connection pool.
-    Ideal for FastAPI BackgroundTasks since it acquires its own connection.
-    """
-    
-    # Safely dump dictionaries to strings, or keep them as None
+    stack_trace: Optional[str] = None,
+    conn: Optional[Connection] = None
+) -> Optional[str]:
     params_json = json.dumps(query_parameters) if query_parameters else None
     context_json = json.dumps(execution_context) if execution_context else None
 
@@ -46,30 +42,42 @@ async def insert_log(
             $1, $2::INET, $3, $4, $5, 
             $6, $7, $8, $9, 
             $10::JSONB, $11::JSONB, $12
-        )
-        RETURNING id;
+        );
     """
-    
-    # Acquire a connection from the global pool automatically 
-    # and release it back when the block exits.
-    async with db.pool.acquire() as conn:
-        log_id = await conn.fetchval(
-            query,
-            user_id,
-            ip_address,
-            user_agent,
-            request_method,
-            request_path,
-            error_level,
-            error_type,
-            error_message,
-            failed_query,
-            params_json,
-            context_json,
-            stack_trace
-        )
-        
-    return log_id
+    if conn is None:
+        async with db.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                user_id,
+                ip_address,
+                user_agent,
+                request_method,
+                request_path,
+                error_level,
+                error_type,
+                error_message,
+                failed_query,
+                params_json,
+                context_json,
+                stack_trace
+            )
+    else:
+        await conn.execute(
+                query,
+                user_id,
+                ip_address,
+                user_agent,
+                request_method,
+                request_path,
+                error_level,
+                error_type,
+                error_message,
+                failed_query,
+                params_json,
+                context_json,
+                stack_trace
+            )
+
 
 
 async def get_logs(

@@ -85,7 +85,6 @@ def is_of_legal_age(birthdate: date, legal_age: int = 18) -> bool:
     Essential for restricting access to adult manhwa content.
     """
     today = date.today()
-    # Subtract years, and subtract 1 more if the current date is before their birthday this year
     age = today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
     return age >= legal_age
 
@@ -115,18 +114,9 @@ def is_valid_image_signature(header_bytes: bytes) -> bool:
 
 
 def generate_slug(title: str) -> str:
-    """
-    Creates an SEO-friendly URL slug from a manhwa title.
-    Example: "The Beginning After The End!" -> "the-beginning-after-the-end"
-    """
-    # Normalize to NFD to separate characters from their accents/diacritics
     normalized = unicodedata.normalize('NFKD', title).encode('ASCII', 'ignore').decode('utf-8')
     normalized = normalized.lower()
-    
-    # Replace any sequence of non-alphanumeric characters with a single hyphen
     slug = re.sub(r'[^a-z0-9]+', '-', normalized)
-    
-    # Strip leading or trailing hyphens
     return slug.strip('-')
 
 

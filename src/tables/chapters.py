@@ -1,72 +1,88 @@
 from src.schemas.chapter import ChapterResponse, ChapterUpdate
 from src.exceptions import DatabaseException
+from src.schemas.pagination import Pagination
 from asyncpg import Connection, UniqueViolationError
+from typing import Union, Optional
+from src import db
+import traceback
+from src.tables import logs as logs_table
+from uuid import UUID
 
 
 async def get_chapters_from_manhwa(
-    manhwa_slug: str, 
-    is_published: bool,
+    identifier: Union[str, UUID], 
+    is_published: Optional[bool],
     limit: int,
     offset: int,
     conn: Connection
-) -> list[ChapterResponse]:
-    conditions = ["manhwa_id = $1"]
-    params = [manhwa_slug]
+) -> Pagination[ChapterResponse]:
+    is_uuid = False
+    if isinstance(identifier, UUID):
+        is_uuid = True
+    else:
+        try:
+            UUID(identifier)
+            is_uuid = True
+        except ValueError:
+            is_uuid = False
 
+    params = [str(identifier)]
+        
+    if is_uuid:
+        base_query = "FROM chapters c WHERE c.manhwa_id = $1::uuid"
+    else:
+        base_query = """
+            FROM chapters c 
+            JOIN manhwas m ON c.manhwa_id = m.id 
+            WHERE m.slug = $1
+        """    
     if is_published is not None:
         params.append(is_published)
-        conditions.append(f"is_published = ${len(params)}")
+        base_query += f" AND c.is_published = ${len(params)}"
+    
+    count_query = f"SELECT COUNT(c.id) {base_query}"    
 
-    where_clause = " AND ".join(conditions)
-    params.extend([limit, offset])
-
-    query = f"""
+    fetch_params = params.copy()
+    fetch_params.extend([limit, offset])    
+    fetch_query = f"""
         SELECT 
-            * 
-        FROM 
-            chapters 
-        WHERE 
-            {where_clause} 
+            c.* 
+        {base_query} 
         ORDER BY 
-            num DESC 
+            c.num DESC 
         LIMIT 
-            ${len(params) - 1} 
+            ${len(fetch_params) - 1} 
         OFFSET 
-            ${len(params)}
+            ${len(fetch_params)}
     """
+
     try:
-        rows = await conn.fetch(query, *params)
+        total_items = await conn.fetchval(count_query, *params)
+        if total_items == 0:
+            rows = []
+        else:
+            rows = await conn.fetch(fetch_query, *fetch_params)
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while fetching the chapters.",
             original_error=e,
-            query=query,
-            params=params,
+            query=fetch_query,
+            params=fetch_params,
             additional_context={
                 "action": "list_manhwa_chapters", 
-                "manhwa_slug": manhwa_slug
+                "identifier": str(identifier),
+                "is_uuid": is_uuid
             }
         )
-    return [ChapterResponse(**row) for row in rows]
-
-
-async def get_chapter(chapter_id: str, conn: Connection) -> ChapterResponse:
-    query = "SELECT * FROM chapters WHERE id = $1"
     
-    try:
-        row = await conn.fetchrow(query, chapter_id)
-        if row:
-            return ChapterResponse(**row)
-    except Exception as e:
-        raise DatabaseException(
-            client_message="An unexpected error occurred while fetching the chapter details.",
-            original_error=e,
-            query=query,
-            params=[chapter_id],
-            additional_context={"action": "get_chapter", "chapter_id": str(chapter_id)}
-        )
-    
+    return Pagination(
+        items=[ChapterResponse(**row) for row in rows],
+        total_items=total_items,
+        limit=limit,
+        offset=offset
+    )
 
+    
 async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: Connection) -> ChapterResponse:
     update_data = chapter_update.model_dump(exclude_unset=True)
     if not update_data: 
@@ -99,7 +115,7 @@ async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: C
     try:
         row = await conn.fetchrow(query, *params)
         if row:
-            return ChapterResponse(**row)
+            return ChapterResponse(row)
     except UniqueViolationError as e:
         raise DatabaseException(
             client_message="Chapter with this sort_order or num already exists for this manhwa.",
@@ -134,16 +150,28 @@ async def delete_chapter(chapter_id: str, conn: Connection) -> bool:
         )
     
 
-async def increment_chapter_view(chapter_id: str, conn: Connection) -> None:
+async def increment_chapter_view_bg(chapter_id: UUID) -> None:
+    """
+    Background task to increment chapter views.
+    Acquires its own connection since the HTTP request has already finished.
+    """
     query = "UPDATE chapters SET views = views + 1 WHERE id = $1;"
     
-    try:
-        await conn.fetchval(query, chapter_id)
-    except Exception as e:
-        raise DatabaseException(
-            client_message="An unexpected error occurred while incrementing the chapter view count.",
-            original_error=e,
-            query=query,
-            params=[chapter_id],
-            additional_context={"action": "increment_chapter_view", "chapter_id": str(chapter_id)}
-        )
+    async with db.pool.acquire() as conn:
+        try:
+            await conn.execute(query, chapter_id)
+        except Exception as e:
+            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            await logs_table.insert_log(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                error_level="ERROR",
+                failed_query=query,
+                query_parameters={"chapter_id": str(chapter_id)},
+                execution_context={
+                    "action": "increment_chapter_view_bg",
+                    "description": "Failed to increment chapter view count in background."
+                },
+                stack_trace=tb_str,
+                conn=conn
+            )

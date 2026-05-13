@@ -77,3 +77,11 @@ async def refresh_view(view: AllowedMaterializedViews, conn: Connection) -> None
                 "view_name": view.value
             }
         )
+    
+
+async def ping(conn: Connection) -> bool:
+    try:
+        result = await conn.fetchval("SELECT 1;")
+        return result == 1
+    except Exception:
+        return False

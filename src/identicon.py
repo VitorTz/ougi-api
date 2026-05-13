@@ -1,4 +1,5 @@
-from typing import Tuple
+from src.constants import Constants
+import random
 import hashlib
 
 
@@ -23,7 +24,7 @@ def _hsl_to_hex(h: float, s: float, l: float) -> str:
     return f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}"
 
 
-def _build_palette(hashed: str) -> Tuple[str, str, str, str, str]:
+def _build_palette(hashed: str) -> tuple[str, str, str, str, str]:
     """
     Deriva uma paleta de 5 cores a partir do digest MD5.
     Retorna: (bg, primary, primary_highlight, accent, accent_highlight)
@@ -44,7 +45,7 @@ def _build_palette(hashed: str) -> Tuple[str, str, str, str, str]:
     return bg, primary, primary_hi, accent, accent_hi
 
 
-def generate_identicon(identifier: str, size: int = 120) -> str:
+def generate_avatar_identicon(identifier: str, size: int = 120) -> str:
     """
     Gera um identicon SVG simétrico com paleta de cores dinâmica e fills
     em gradiente, derivados do hash MD5 do `identifier`.
@@ -71,7 +72,7 @@ def generate_identicon(identifier: str, size: int = 120) -> str:
         f'<polygon points="50,5 95,27 95,73 50,95 5,73 5,27"/><polygon points="50,28 73,40 73,60 50,72 27,60 27,40" fill="{bg}"/>',
         '<path d="M8,50 Q50,5 92,50 Q50,95 8,50 Z"/>',
         '<path d="M50,5 L90,25 L90,75 L50,95 L10,75 L10,25 Z"/>',
-        '<rect x="8" y="8" width="84" height="84" rx="42"/>',
+        '<rect x="8" y="8" width="84" height="84" rx="42"/>'
     ]
 
     EDGE = [
@@ -86,7 +87,7 @@ def generate_identicon(identifier: str, size: int = 120) -> str:
         '<path d="M18,100 L50,12 L82,100 Z"/>',
         '<ellipse cx="50" cy="78" rx="44" ry="28"/>',
         '<path d="M0,100 L0,55 Q50,0 100,55 L100,100 Z"/>',
-        '<polygon points="10,100 40,30 60,30 90,100"/>',
+        '<polygon points="10,100 40,30 60,30 90,100"/>'
     ]
 
     CORNER = [
@@ -101,7 +102,7 @@ def generate_identicon(identifier: str, size: int = 120) -> str:
         '<path d="M0,0 L65,0 Q100,0 100,35 L100,100 L0,100 Z"/>',
         '<ellipse cx="0" cy="0" rx="88" ry="88"/>',
         '<rect width="42" height="42"/><rect x="58" y="58" width="42" height="42"/>',
-        '<polygon points="0,0 100,0 100,18 18,18 18,100 0,100"/>',
+        '<polygon points="0,0 100,0 100,18 18,18 18,100 0,100"/>'
     ]
 
     ic = int(hashed[6], 16) % len(CENTER)
@@ -127,7 +128,7 @@ def generate_identicon(identifier: str, size: int = 120) -> str:
         _cell(CORNER[ik], k_fill,       0,   0,   0),
         _cell(CORNER[ik], k_fill,     200,   0,  90),
         _cell(CORNER[ik], k_fill,     200, 200, 180),
-        _cell(CORNER[ik], k_fill,       0, 200, 270),
+        _cell(CORNER[ik], k_fill,       0, 200, 270)
     ]
 
     body = "\n    ".join(cells)
@@ -150,3 +151,113 @@ def generate_identicon(identifier: str, size: int = 120) -> str:
         </g>
         </svg>
     """
+
+def generate_banner_identicon(identifier: str, width: int = 1500, height: int = 500) -> str:
+    """
+    Generates a generative geometric SVG banner (Bauhaus / Swiss Design inspired). 
+    It strikes the perfect balance by creating unique structural art without 
+    resorting to chaotic noise or rigid grids. Clean shapes are procedurally 
+    layered to ensure distinct aesthetics per username.
+    """
+    hashed = hashlib.md5(identifier.encode("utf-8")).hexdigest()
+    
+    bg, pri, pri_hi, acc, acc_hi = _build_palette(hashed)
+    rng = random.Random(hashed)
+
+    VW, VH = 900, 300
+
+    # 1. Background Generation
+    # Generates a smooth backdrop gradient based on slightly shifted background hue
+    bg_angles = [(0, 0, VW, 0), (0, 0, 0, VH), (0, 0, VW, VH), (VW, 0, 0, VH)]
+    gx1, gy1, gx2, gy2 = rng.choice(bg_angles)
+    
+    hue = int(hashed[0:2], 16) / 255.0 * 360
+    sv  = int(hashed[2], 16) / 15.0
+    lv  = int(hashed[3], 16) / 15.0
+    hue_shift = rng.randint(15, 30) * rng.choice([-1, 1])
+    bg2 = _hsl_to_hex((hue + hue_shift) % 360, 0.22 + sv * 0.20, 0.12 + lv * 0.10)
+
+    # 2. Generative Geometric Shapes
+    # Choose between 12 and 24 crisp elements to compose the abstract landscape
+    num_shapes = rng.randint(12, 24)
+    palette = [pri, pri_hi, acc, acc_hi, bg, bg2]
+    
+    shapes_svg = []
+    
+    for _ in range(num_shapes):
+        shape_type = rng.choice(["circle", "ring", "line", "triangle"])
+        color = rng.choice(palette)
+        opacity = round(rng.uniform(0.3, 0.95), 2)
+        
+        if shape_type == "circle":
+            cx = rng.randint(-50, VW + 50)
+            cy = rng.randint(-50, VH + 50)
+            r = rng.randint(20, 160)
+            shapes_svg.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="{opacity}"/>')
+            
+        elif shape_type == "ring":
+            cx = rng.randint(-50, VW + 50)
+            cy = rng.randint(-50, VH + 50)
+            r = rng.randint(30, 130)
+            sw = rng.randint(4, 25)
+            shapes_svg.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{sw}" opacity="{opacity}"/>')
+            
+        elif shape_type == "line":
+            x_start = rng.randint(-100, VW + 50)
+            y_start = rng.randint(-100, VH + 50)
+            # Ensure lines span a good distance across the canvas
+            x_end = x_start + rng.randint(-400, 400)
+            y_end = y_start + rng.randint(-300, 300)
+            sw = rng.randint(8, 45)
+            shapes_svg.append(
+                f'<line x1="{x_start}" y1="{y_start}" x2="{x_end}" y2="{y_end}" '
+                f'stroke="{color}" stroke-width="{sw}" stroke-linecap="round" opacity="{opacity}"/>'
+            )
+            
+        elif shape_type == "triangle":
+            cx = rng.randint(0, VW)
+            cy = rng.randint(0, VH)
+            size = rng.randint(40, 180)
+            # Generate equilateral-ish polygon points around the center
+            x1, y1 = cx, cy - size
+            x2, y2 = cx - size * 0.866, cy + size * 0.5
+            x3, y3 = cx + size * 0.866, cy + size * 0.5
+            rot = rng.randint(0, 360)
+            shapes_svg.append(
+                f'<polygon points="{x1:.1f},{y1:.1f} {x2:.1f},{y2:.1f} {x3:.1f},{y3:.1f}" '
+                f'fill="{color}" opacity="{opacity}" transform="rotate({rot} {cx} {cy})"/>'
+            )
+
+    body_svg = "\n    ".join(shapes_svg)
+
+    return f"""\
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {VH}" width="{width}" height="{height}">
+        <defs>
+            <linearGradient id="bg_grad" x1="{gx1}" y1="{gy1}" x2="{gx2}" y2="{gy2}" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="{bg}"/>
+            <stop offset="100%" stop-color="{bg2}"/>
+            </linearGradient>
+        </defs>
+        
+        <!-- Base clean gradient -->
+        <rect width="{VW}" height="{VH}" fill="url(#bg_grad)"/>
+        
+        <!-- Procedural geometric composition -->
+        <g>
+            {body_svg}
+        </g>
+        </svg>
+    """
+
+
+def build_avatar_svg_url(username: str) -> str:
+    return Constants.API_PREFIX + f"/identicons/{username.strip()}/avatar.svg"
+
+
+def build_banner_svg_url(username: str) -> str:
+    return Constants.API_PREFIX + f"/identicons/{username.strip()}/banner.svg"
+
+
+def generate_etag(v: str):
+    return f'"{hashlib.md5(v.strip().encode()).hexdigest()}"'
+    
