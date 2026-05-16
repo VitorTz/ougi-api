@@ -7,9 +7,11 @@ from src.tables import audit_log as audit_log_table
 from src.db import db_connection, refresh_view
 from typing import Optional
 from asyncpg import Connection
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from src.util import get_real_client_ip
 from src.security import jwt
+
+
 
 
 router = APIRouter(
@@ -17,6 +19,7 @@ router = APIRouter(
     tags=['admin'], 
     dependencies=[Depends(require_admin_access)]
 )
+limiter = get_limiter()
 
 
 @router.post("/refresh-mv-catalog", status_code=status.HTTP_204_NO_CONTENT)

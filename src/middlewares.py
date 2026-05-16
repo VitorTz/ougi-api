@@ -1,12 +1,7 @@
-from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
-from datetime import datetime
+from fastapi import Request
 import uuid
-import logging
-import time
-
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

@@ -12,14 +12,13 @@ from src.security import jwt
 from src.security import cookies
 from src.security.hashing import PasswordHasher
 from src.dependencies import get_password_hasher
-from src.exceptions import DatabaseException, CREDENTIALS_EXCEPTION, DuplicateRecordError
+from src.exceptions import CREDENTIALS_EXCEPTION, DuplicateRecordError
 from typing import Optional
-from src.ratelimit import limiter
-from src import identicon
-import asyncpg
+from src.dependencies import get_limiter
 
 
 router = APIRouter(prefix="/auth", tags=['auth'])
+limiter = get_limiter()
 
 
 @router.get("/me", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)

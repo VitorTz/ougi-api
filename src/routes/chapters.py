@@ -1,7 +1,7 @@
 from src.schemas.chapter import ChapterResponse
 from fastapi import APIRouter, Query, Path, status, Depends, HTTPException, Request, BackgroundTasks
 from src.tables import chapters as chapter_table
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from src.db import db_connection
 from asyncpg import Connection
 from typing import Optional, Union
@@ -9,7 +9,11 @@ from uuid import UUID
 from src.schemas.pagination import Pagination
 
 
-router = APIRouter(prefix='/chapters', tags=['chapters'])
+router = APIRouter(
+    prefix='/chapters', 
+    tags=['chapters']
+)
+limiter = get_limiter()
 
 
 @router.get(

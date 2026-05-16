@@ -3,6 +3,7 @@ from src.constants import Constants
 from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
 from typing import Any
+from uuid import UUID
 import math
 import unicodedata
 import re
@@ -165,3 +166,12 @@ def redact_sensitive_data(payload: dict) -> dict:
             redacted[key] = value
             
     return redacted
+
+
+def is_uuid(v: str):
+    if isinstance(v, UUID): return True
+    try:
+        UUID(v)
+        return True
+    except ValueError:
+        return False

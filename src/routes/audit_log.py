@@ -4,7 +4,7 @@ from asyncpg import Connection
 from src.security.cookies import require_admin_access
 from src.schemas.audit_log import AuditLogResponse
 from src.db import db_connection
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from src.tables import audit_log as audit_log_table
 
 
@@ -13,6 +13,7 @@ router = APIRouter(
     tags=['audit_logs'],
     dependencies=[Depends(require_admin_access)]
 )
+limiter = get_limiter()
 
 
 @router.get("/", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)

@@ -19,9 +19,12 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from src import middlewares
 from src import db
 from src import handlers
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 import contextlib
 import uvicorn
+
+
+limiter = get_limiter()
 
 
 @contextlib.asynccontextmanager

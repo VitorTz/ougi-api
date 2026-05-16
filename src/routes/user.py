@@ -4,13 +4,17 @@ from src.schemas.user import UserUpdate, UserPublicResponse
 from src.exceptions import DuplicateRecordError
 from src.db import db_connection
 from src.tables import user as user_table
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from typing import Optional
 from asyncpg import Connection
 from src.security import jwt
 
 
-router = APIRouter(prefix="/user", tags=['user'])
+router = APIRouter(
+    prefix="/user", 
+    tags=['user']
+)
+limiter = get_limiter()
 
 
 @router.patch("", response_model=UserPublicResponse, status_code=status.HTTP_200_OK)
@@ -36,7 +40,7 @@ async def update_user(
         )
 
     try:
-        updated_user = await user_table.user_update(
+        updated_user = await user_table.update_user(
             user_id=user_id_str, 
             payload=payload, 
             conn=conn

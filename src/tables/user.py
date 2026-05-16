@@ -4,7 +4,7 @@ from asyncpg import Connection, UniqueViolationError
 from typing import Optional
 
 
-USER_COLUMNS = """
+USER_PUBLIC_INFO_COLUMNS = """
     u.id,
     u.username,
     u.role,
@@ -15,6 +15,20 @@ USER_COLUMNS = """
     u.is_adult,
     u.last_seen_at,
     u.created_at
+"""
+
+USER_SENSITIVE_INFO_COLUMNS = """
+    u.id,
+    u.username,
+    u.role,
+    u.avatar_url,
+    u.bio,
+    u.banner_url,
+    u.is_banned,
+    u.is_adult,
+    u.last_seen_at,
+    u.created_at,
+    u.password_hash
 """
 
 
@@ -29,7 +43,7 @@ async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicR
                 u.id = $1 
                 AND u.is_active IS TRUE
             RETURNING
-                {USER_COLUMNS};
+                {USER_PUBLIC_INFO_COLUMNS};
         """,
         user_id
     )
@@ -47,11 +61,10 @@ async def get_user_login_data(identifier: str, conn: Connection) -> dict | None:
             AND u.is_active = TRUE
             AND u.is_banned = FALSE
         RETURNING
-            {USER_COLUMNS},
-            u.password_hash;
+            {USER_SENSITIVE_INFO_COLUMNS}
     """
     row = await conn.fetchrow(query, identifier)
-    if row: return dict(row)
+    return dict(row) if row else None
 
 
 async def user_create(user: UserCreate, conn: Connection):
@@ -160,7 +173,7 @@ async def ban_user(user_id: str, conn: Connection) -> bool:
         )
 
 
-async def user_update(
+async def update_user(
     user_id: str, 
     payload: UserUpdate, 
     conn: Connection

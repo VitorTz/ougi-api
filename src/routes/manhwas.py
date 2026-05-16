@@ -4,12 +4,16 @@ from fastapi.exceptions import HTTPException
 from typing import Optional
 from asyncpg import Connection
 from src.db import db_connection
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from src.schemas.pagination import Pagination
 from src.tables import manwhas as manhwas_table
 
 
-router = APIRouter(prefix='/manhwas', tags=['manhwas'])
+router = APIRouter(
+    prefix='/manhwas', 
+    tags=['manhwas']
+)
+limiter = get_limiter()
 
 
 @router.get("/", response_model=ManhwaCatalogResponse)

@@ -5,7 +5,7 @@ from uuid import UUID
 from src.security.cookies import require_admin_access
 from src.schemas.log import SystemLogResponse
 from src.db import db_connection
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 
 
 router = APIRouter(
@@ -13,6 +13,7 @@ router = APIRouter(
     tags=['logs'],
     dependencies=[Depends(require_admin_access)]
 )
+limiter = get_limiter()
 
 
 @router.get("/", response_model=list[SystemLogResponse])

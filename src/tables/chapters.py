@@ -2,11 +2,12 @@ from src.schemas.chapter import ChapterResponse, ChapterUpdate
 from src.exceptions import DatabaseException
 from src.schemas.pagination import Pagination
 from asyncpg import Connection, UniqueViolationError
+from src.tables import logs as logs_table
 from typing import Union, Optional
 from src import db
-import traceback
-from src.tables import logs as logs_table
 from uuid import UUID
+from src import util
+import traceback
 
 
 async def get_chapters_from_manhwa(
@@ -16,25 +17,18 @@ async def get_chapters_from_manhwa(
     offset: int,
     conn: Connection
 ) -> Pagination[ChapterResponse]:
-    is_uuid = False
-    if isinstance(identifier, UUID):
-        is_uuid = True
-    else:
-        try:
-            UUID(identifier)
-            is_uuid = True
-        except ValueError:
-            is_uuid = False
-
     params = [str(identifier)]
         
-    if is_uuid:
+    if util.is_uuid(identifier):
         base_query = "FROM chapters c WHERE c.manhwa_id = $1::uuid"
     else:
         base_query = """
-            FROM chapters c 
-            JOIN manhwas m ON c.manhwa_id = m.id 
-            WHERE m.slug = $1
+            FROM 
+                chapters c
+            JOIN 
+                manhwas m ON c.manhwa_id = m.id 
+            WHERE 
+                m.slug = $1
         """    
     if is_published is not None:
         params.append(is_published)
@@ -70,8 +64,7 @@ async def get_chapters_from_manhwa(
             params=fetch_params,
             additional_context={
                 "action": "list_manhwa_chapters", 
-                "identifier": str(identifier),
-                "is_uuid": is_uuid
+                "identifier": str(identifier)
             }
         )
     

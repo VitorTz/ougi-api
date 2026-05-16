@@ -6,14 +6,19 @@ from fastapi.exceptions import HTTPException
 from src.tables import user as users_table
 from src.tables import chapters as chapter_table
 from src.util import get_real_client_ip
-from src.ratelimit import limiter
+from src.dependencies import get_limiter
 from src.db import db_connection
 from src.security import jwt
 from asyncpg import Connection
 from typing import Optional
 
 
-router = APIRouter(prefix="/moderator", tags=['moderator'], dependencies=[Depends(require_moderator_access)])
+router = APIRouter(
+    prefix="/moderator", 
+    tags=['moderator'], 
+    dependencies=[Depends(require_moderator_access)]
+)
+limiter = get_limiter()
 
 
 # ============================================= 
