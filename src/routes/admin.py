@@ -8,7 +8,6 @@ from fastapi import (
     Cookie,
     Path
 )
-from fastapi.exceptions import HTTPException
 from src.security.cookies import require_admin_access
 from src.schemas.user import UserRole, UserPublicResponse
 from src.schemas.pagination import Pagination
@@ -17,7 +16,7 @@ from src.tables import audit_log as audit_log_table
 from src.tables import logs as logs_table
 from src.tables import tokens as tokens_table
 from src.tables import login_attempts as login_attempts_table
-from src.exceptions import DatabaseException
+from src.exceptions import ResourceNotFoundException
 from src.schemas.log import SystemLogResponse
 from src.schemas.audit_log import AuditLogResponse
 from src.db import db_connection, refresh_view
@@ -25,7 +24,7 @@ from typing import Optional
 from asyncpg import Connection
 from src.dependencies import get_limiter
 from src.util import get_real_client_ip
-from src.security import jwt
+from src.security import jwt_utils
 from uuid import UUID
 
 
@@ -41,7 +40,7 @@ limiter = get_limiter()
 # DATABASE
 # ============================================= 
 
-@router.post("/refresh_mv/{mv_name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/database/refresh_mv/{mv_name}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def refresh_materialized_view(
     request: Request,
@@ -62,7 +61,7 @@ async def refresh_materialized_view(
 # ============================================= 
 # MODERATORS
 # ============================================= 
-@router.post("/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/moderators/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def update_user_role(
     request: Request,
@@ -84,15 +83,12 @@ async def update_user_role(
     Updates the role of a specific user. 
     Triggers a background task to record the action in the audit logs.
     """
-    id_actor: str = jwt.extract_user_id_from_jwt_access_token(access_token)
+    id_actor: str = jwt_utils.extract_value_from_token(access_token, "sub")
     
     success: bool = await users_table.update_role_user(user_id, role, conn)
     
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found."
-        )
+        raise ResourceNotFoundException("User")
     
     # Audit logging in background
     background_tasks.add_task(
@@ -108,7 +104,7 @@ async def update_user_role(
 # =============================================
 # USERS
 # =============================================
-@router.get("/list", status_code=status.HTTP_200_OK, response_model=Pagination[UserPublicResponse])
+@router.get("/users", status_code=status.HTTP_200_OK, response_model=Pagination[UserPublicResponse])
 @limiter.limit("32/minute")
 async def list_users(
     request: Request,
@@ -156,11 +152,25 @@ async def list_users(
     )
 
 
+@router.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("32/minute")
+async def delete_user(
+    request: Request,
+    user_id: str = Path(
+        ...,
+        title="User ID",
+        description="The unique UUID of the user whose role is being updated."
+    ),
+    conn: Connection = Depends(db_connection)
+):
+    await users_table.delete_user(user_id, conn)
+
+
 # =============================================
 # AUTH
 # =============================================
 
-@router.delete("/", status_code=status.HTTP_200_OK)
+@router.delete("/auth", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_old_login_attempts(
     request: Request,
@@ -187,7 +197,7 @@ async def clear_old_login_attempts(
     }
 
 
-@router.delete("/", status_code=status.HTTP_200_OK)
+@router.delete("/auth", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_expired_tokens(
     request: Request,
@@ -215,9 +225,9 @@ async def clear_expired_tokens(
     }
 
 # =============================================
-# LOGS
+# SYSTEM LOGS
 # =============================================
-@router.get("/", status_code=status.HTTP_200_OK, response_model=Pagination[SystemLogResponse])
+@router.get("/logs", status_code=status.HTTP_200_OK, response_model=Pagination[SystemLogResponse])
 @limiter.limit("32/minute")
 async def list_logs(
     request: Request,
@@ -255,27 +265,17 @@ async def list_logs(
     Retrieves a paginated list of system and error logs.
     Supports filtering by severity level, error type, and specific users.
     """
-    try:
-        return await logs_table.get_logs(
-            limit=limit,
-            offset=offset,
-            conn=conn,
-            error_level=error_level,
-            user_id=user_id,
-            error_type=error_type
-        )
-    except DatabaseException as e:
-        # Re-raise known database exceptions to be caught by the global handler
-        raise e
-    except Exception:
-        # Generic fallback to avoid leaking sensitive internal state
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected system error occurred while retrieving the logs. Please try again later."
-        )
+    return await logs_table.get_logs(
+        limit=limit,
+        offset=offset,
+        conn=conn,
+        error_level=error_level,
+        user_id=user_id,
+        error_type=error_type
+    )
     
 
-@router.get("/{log_id}", response_model=SystemLogResponse)
+@router.get("/logs/{log_id}", response_model=SystemLogResponse)
 @limiter.limit("16/minute")
 async def get_log_details(
     request: Request,
@@ -290,15 +290,11 @@ async def get_log_details(
     Retrieves the complete details of a specific system log entry by its ID.
     """
     log: SystemLogResponse | None = await logs_table.get_log_by_id(log_id, conn)
-    if not log:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Log entry not found."
-        )
+    if not log: raise ResourceNotFoundException("Log entry")
     return log
 
 
-@router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def delete_log(
     request: Request, 
@@ -318,13 +314,10 @@ async def delete_log(
     )
         
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Log entry not found."
-        )
+        raise ResourceNotFoundException("Log entry")
+    
 
-
-@router.delete("/", status_code=status.HTTP_200_OK)
+@router.delete("/logs", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_old_logs(
     request: Request,
@@ -349,7 +342,7 @@ async def clear_old_logs(
 # =============================================
 # AUDIT LOG
 # =============================================
-@router.get("/", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)
+@router.get("/audit-log", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def list_audit_logs(
     request: Request,
@@ -364,7 +357,7 @@ async def list_audit_logs(
     """
     Retrieve a paginated list of audit logs with optional filtering.
     """
-    logs = await audit_log_table.get_audit_logs(
+    return await audit_log_table.get_audit_logs(
         conn=conn,
         limit=limit,
         offset=offset,
@@ -373,10 +366,9 @@ async def list_audit_logs(
         actor_id=actor_id,
         record_id=record_id
     )
-    return logs
 
 
-@router.get("/{log_id}", response_model=AuditLogResponse, status_code=status.HTTP_200_OK)
+@router.get("/audit-log/{log_id}", response_model=AuditLogResponse, status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def get_audit_log_details(
     request: Request,
@@ -389,15 +381,12 @@ async def get_audit_log_details(
     log_entry = await audit_log_table.get_audit_log_by_id(log_id, conn)
     
     if not log_entry:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Audit log entry not found."
-        )
+        raise ResourceNotFoundException("Audit log entry")
         
     return log_entry
 
 
-@router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/audit-log/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def delete_audit_log(
     request: Request, 
@@ -409,14 +398,10 @@ async def delete_audit_log(
     """
     success = await audit_log_table.delete_audit_log_by_id(log_id, conn)
     
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Audit log entry not found."
-        )
+    if not success: raise ResourceNotFoundException("Audit log entry")
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/audit-log", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def clear_old_audit_logs(
     request: Request,

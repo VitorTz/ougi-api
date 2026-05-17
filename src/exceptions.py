@@ -1,6 +1,6 @@
-from fastapi import status
 from fastapi.exceptions import HTTPException
 from typing import Any, Optional, Dict
+from fastapi import status
 import traceback
 
 
@@ -10,6 +10,87 @@ CREDENTIALS_EXCEPTION = HTTPException(
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
+
+
+FORBIDDEN_EXCEPTION = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="You do not have permission to perform this action.",
+)
+
+
+ACCOUNT_NOT_FOUND_EXCEPTION = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED, 
+    detail='User account no longer exists or is invalid.'
+)
+
+
+MAX_LOGIN_ATTEMPT_EXCEPTION = HTTPException(
+    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+    detail="Too many failed login attempts. Please try again in 15 minutes."
+)
+
+
+EMPTY_UPDATE_EXCEPTION = HTTPException(
+    status_code=status.HTTP_400_BAD_REQUEST, 
+    detail="No valid fields provided for update."
+)
+
+class ConflictException(HTTPException):
+
+    """
+    Exception raised when a request conflicts with the current state of the server.
+    Useful for duplicate unique constraints (e.g., email already registered).
+    """
+
+    def __init__(self, detail: str = "Resource already exists or conflicts with current state."):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail
+        )
+
+
+class ResourceNotFoundException(HTTPException):
+    """
+    Exception raised when a requested resource does not exist in the database.
+    """
+
+    def __init__(self, resource_name: str = "Resource"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{resource_name} not found."
+        )
+
+
+class BusinessRuleException(HTTPException):
+    """
+    Exception raised for domain logic violations that result in a bad request.
+    """
+
+    def __init__(self, detail: str):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
+
+
+class AccountSuspendedException(HTTPException):
+    """
+    Exception raised when a user attempts to authenticate with a banned or inactive account.
+    """
+    def __init__(self, detail: str = "Your account has been suspended or is currently inactive."):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail
+        )
+
+
+class DuplicateRecordError(HTTPException):
+    
+    def __init__(self, detail: str):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail
+        )
 
 
 class DatabaseException(Exception):
@@ -64,9 +145,3 @@ class DatabaseException(Exception):
             "stack_trace": self.traceback_str
         }
     
-
-class DuplicateRecordError(Exception):
-    
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)

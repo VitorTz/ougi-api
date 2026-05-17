@@ -1,4 +1,3 @@
-from src.constants import Constants
 from random import Random
 import hashlib
 
@@ -164,14 +163,14 @@ def generate_avatar_identicon(identifier: str, size: int = 120) -> str:
 
 
 def generate_banner_identicon(identifier: str, width: int = 1500, height: int = 500) -> str:
-    """Gera banner SVG geométrico procedural."""
+    """Gera banner SVG geométrico procedural com composição sofisticada e visual aprimorado."""
     hashed = hashlib.md5(identifier.encode()).hexdigest()
     bg, pri, pri_hi, acc, acc_hi = _build_palette(hashed)
     rng = Random(hashed)
-
+ 
     VW, VH = 900, 300
-
-    # Background gradient
+ 
+    # Background gradient sofisticado com 3 cores
     gx1, gy1, gx2, gy2 = rng.choice(_BG_ANGLES)
     
     h0 = int(hashed[0:2], 16) / 255.0 * 360
@@ -179,60 +178,163 @@ def generate_banner_identicon(identifier: str, width: int = 1500, height: int = 
     lv = int(hashed[3], 16) / 15.0
     hue_shift = rng.randint(15, 30) * rng.choice([-1, 1])
     bg2 = _hsl_to_hex((h0 + hue_shift) % 360, 0.22 + sv * 0.20, 0.12 + lv * 0.10)
-
-    # Gerar shapes com list comprehension
-    num_shapes = rng.randint(12, 24)
-    palette = [pri, pri_hi, acc, acc_hi, bg, bg2]
     
-    shapes_svg = []
-    for _ in range(num_shapes):
-        shape_type = rng.choice(_SHAPE_TYPES)
-        color = rng.choice(palette)
-        opacity = round(rng.uniform(0.3, 0.95), 2)
+    # Terceira cor para gradiente mais complexo
+    hue_shift2 = rng.randint(30, 60) * rng.choice([-1, 1])
+    bg3 = _hsl_to_hex((h0 + hue_shift2) % 360, 0.18 + sv * 0.15, 0.15 + lv * 0.08)
+ 
+    # Gerar estrutura geométrica em camadas
+    layers = {
+        'background': [],
+        'mid': [],
+        'foreground': [],
+        'accent': []
+    }
+ 
+    palette_main = [pri, pri_hi, acc, acc_hi]
+    palette_all = [pri, pri_hi, acc, acc_hi, bg2, bg3]
+ 
+    # Layer 1: Grandes formas de fundo (low opacity) - cria profundidade
+    num_bg_shapes = rng.randint(3, 6)
+    for _ in range(num_bg_shapes):
+        color = rng.choice([pri, acc, bg2, bg3])
+        opacity = round(rng.uniform(0.08, 0.25), 2)
         
-        if shape_type == "circle":
-            cx, cy, r = rng.randint(-50, VW + 50), rng.randint(-50, VH + 50), rng.randint(20, 160)
-            shapes_svg.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="{opacity}"/>')
-            
-        elif shape_type == "ring":
-            cx, cy, r, sw = rng.randint(-50, VW + 50), rng.randint(-50, VH + 50), rng.randint(30, 130), rng.randint(4, 25)
-            shapes_svg.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{sw}" opacity="{opacity}"/>')
-            
-        elif shape_type == "line":
-            x_start, y_start = rng.randint(-100, VW + 50), rng.randint(-100, VH + 50)
-            x_end, y_end = x_start + rng.randint(-400, 400), y_start + rng.randint(-300, 300)
-            sw = rng.randint(8, 45)
-            shapes_svg.append(
-                f'<line x1="{x_start}" y1="{y_start}" x2="{x_end}" y2="{y_end}" '
+        if rng.random() > 0.5:
+            # Círculos grandes
+            cx = rng.randint(-150, VW + 150)
+            cy = rng.randint(-100, VH + 100)
+            r = rng.randint(100, 300)
+            layers['background'].append(
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="{opacity}"/>'
+            )
+        else:
+            # Retângulos rotacionados
+            x = rng.randint(-200, VW)
+            y = rng.randint(-100, VH)
+            w = rng.randint(100, 400)
+            h = rng.randint(80, 200)
+            rot = rng.randint(0, 360)
+            layers['background'].append(
+                f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{color}" '
+                f'opacity="{opacity}" transform="rotate({rot} {x + w//2} {y + h//2})"/>'
+            )
+ 
+    # Layer 2: Formas geométricas médias (média opacity) - cria estrutura visual
+    num_mid_shapes = rng.randint(5, 10)
+    for i in range(num_mid_shapes):
+        color = rng.choice(palette_main)
+        opacity = round(rng.uniform(0.25, 0.60), 2)
+        
+        shape_choice = rng.randint(0, 4)
+        
+        if shape_choice == 0:
+            # Hexágonos regulares
+            cx, cy = rng.randint(0, VW), rng.randint(0, VH)
+            size = rng.randint(20, 80)
+            import math
+            points = " ".join(
+                f"{cx + size * math.cos(i * math.pi / 3):.1f},"
+                f"{cy + size * math.sin(i * math.pi / 3):.1f}"
+                for i in range(6)
+            )
+            layers['mid'].append(
+                f'<polygon points="{points}" fill="{color}" opacity="{opacity}"/>'
+            )
+        elif shape_choice == 1:
+            # Diamantes
+            cx, cy = rng.randint(0, VW), rng.randint(0, VH)
+            size = rng.randint(15, 60)
+            layers['mid'].append(
+                f'<polygon points="{cx},{cy - size} {cx + size},{cy} {cx},{cy + size} {cx - size},{cy}" '
+                f'fill="{color}" opacity="{opacity}"/>'
+            )
+        elif shape_choice == 2:
+            # Linhas elegantes com stroke redondo
+            x1, y1 = rng.randint(-100, VW), rng.randint(-50, VH)
+            x2, y2 = x1 + rng.randint(-300, 300), y1 + rng.randint(-150, 150)
+            sw = rng.randint(3, 12)
+            layers['mid'].append(
+                f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
                 f'stroke="{color}" stroke-width="{sw}" stroke-linecap="round" opacity="{opacity}"/>'
             )
-            
-        elif shape_type == "triangle":
-            cx, cy, size = rng.randint(0, VW), rng.randint(0, VH), rng.randint(40, 180)
-            x1, y1 = cx, cy - size
-            x2, y2 = cx - size * 0.866, cy + size * 0.5
-            x3, y3 = cx + size * 0.866, cy + size * 0.5
-            rot = rng.randint(0, 360)
-            shapes_svg.append(
-                f'<polygon points="{x1:.1f},{y1:.1f} {x2:.1f},{y2:.1f} {x3:.1f},{y3:.1f}" '
-                f'fill="{color}" opacity="{opacity}" transform="rotate({rot} {cx} {cy})"/>'
+        elif shape_choice == 3:
+            # Anéis/rings com variação de espessura
+            cx, cy = rng.randint(0, VW), rng.randint(0, VH)
+            r = rng.randint(20, 100)
+            sw = rng.randint(2, 8)
+            layers['mid'].append(
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" '
+                f'stroke="{color}" stroke-width="{sw}" opacity="{opacity}"/>'
             )
-
-    body_svg = "\n    ".join(shapes_svg)
-
+        else:
+            # Triângulos geométricos rotacionados
+            cx, cy = rng.randint(0, VW), rng.randint(0, VH)
+            size = rng.randint(20, 70)
+            rot = rng.randint(0, 360)
+            layers['mid'].append(
+                f'<polygon points="0,-{size} {size * 0.866},{size * 0.5} {-size * 0.866},{size * 0.5}" '
+                f'fill="{color}" opacity="{opacity}" transform="translate({cx} {cy}) rotate({rot})"/>'
+            )
+ 
+    # Layer 3: Detalhes e acentos finos (high opacity, finos)
+    num_accent_shapes = rng.randint(4, 8)
+    for _ in range(num_accent_shapes):
+        color = rng.choice([pri_hi, acc_hi])
+        opacity = round(rng.uniform(0.5, 1.0), 2)
+        sw = rng.randint(1, 4)
+        
+        if rng.random() > 0.6:
+            # Arcos e curvas elegantes
+            cx, cy = rng.randint(0, VW), rng.randint(0, VH)
+            r = rng.randint(30, 120)
+            start = rng.randint(0, 180)
+            end = start + rng.randint(30, 180)
+            import math
+            arc_path = (
+                f'M {cx + r},{cy} '
+                f'A {r},{r} 0 0,1 {cx + r * math.cos(end * math.pi / 180):.1f},'
+                f'{cy + r * math.sin(end * math.pi / 180):.1f}'
+            )
+            layers['accent'].append(
+                f'<path d="{arc_path}" stroke="{color}" stroke-width="{sw}" '
+                f'fill="none" stroke-linecap="round" opacity="{opacity}"/>'
+            )
+        else:
+            # Pequenos círculos estratégicos para destaque
+            cx, cy = rng.randint(50, VW - 50), rng.randint(50, VH - 50)
+            r = rng.randint(2, 8)
+            layers['accent'].append(
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="{opacity}"/>'
+            )
+ 
+    # Montar SVG com ordem de camadas para efeito visual de profundidade
+    all_shapes = (
+        layers['background'] + 
+        layers['mid'] + 
+        layers['foreground'] + 
+        layers['accent']
+    )
+    body_svg = "\n    ".join(all_shapes)
+ 
     return f"""\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {VH}" width="{width}" height="{height}">
 <defs>
 <linearGradient id="bg_grad" x1="{gx1}" y1="{gy1}" x2="{gx2}" y2="{gy2}" gradientUnits="userSpaceOnUse">
 <stop offset="0%" stop-color="{bg}"/>
-<stop offset="100%" stop-color="{bg2}"/>
+<stop offset="50%" stop-color="{bg2}"/>
+<stop offset="100%" stop-color="{bg3}"/>
 </linearGradient>
+<filter id="soft_blur">
+<feGaussianBlur in="SourceGraphic" stdDeviation="0.5"/>
+</filter>
 </defs>
 <rect width="{VW}" height="{VH}" fill="url(#bg_grad)"/>
-<g>
+<g filter="url(#soft_blur)">
 {body_svg}
 </g>
 </svg>"""
+
 
 
 def generate_etag(v: str) -> str:

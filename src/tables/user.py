@@ -57,35 +57,36 @@ async def get_user_login_data(identifier: str, conn: Connection) -> Optional[dic
     query = f"""
         WITH updated_user AS (
             UPDATE
-                users
+                users u
             SET
                 last_seen_at = NOW()
             WHERE
-                (username = TRIM($1) OR email = TRIM($1))
-                AND is_active = TRUE
-                AND is_banned = FALSE
+                (u.username = TRIM($1) OR u.email = TRIM($1))
+                AND u.is_active = TRUE
+                AND u.is_banned = FALSE
             RETURNING
                 {USER_SENSITIVE_INFO_COLUMNS}
         )
         SELECT 
-            u.*,
+            up.*,
             (
                 SELECT 
                     COUNT(id)
                 FROM 
-                    login_attempts
+                    login_attempts la
                 WHERE 
-                    identifier = TRIM($1)
-                    AND success = FALSE
-                    AND created_at >= NOW() - make_interval(mins => 15)
+                    la.identifier = TRIM($1)
+                    AND la.success = FALSE
+                    AND la.created_at >= NOW() - make_interval(mins => 15)
             ) AS recent_failed_attempts
         FROM 
-            updated_user u;
+            updated_user up;
     """
     
     try:
         row = await conn.fetchrow(query, identifier)
         return dict(row) if row else None
+        
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while verifying your credentials.",
@@ -107,7 +108,7 @@ async def create_user(user: UserCreate, conn: Connection):
             bio
         )
         VALUES
-            (TRIM($1), TRIM($2), $3, TRIM($4), $5)
+            (TRIM($1), TRIM($2), $3, TRIM($4))
     """
     try:
         await conn.execute(
@@ -334,3 +335,7 @@ async def get_users(
         limit=limit,
         offset=offset
     )
+
+
+async def delete_user(user_id: str, conn: Connection) -> None:
+    await conn.execute("DELETE FROM users WHERE id = $1;", user_id)

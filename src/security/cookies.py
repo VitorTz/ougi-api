@@ -4,7 +4,7 @@ from fastapi import Cookie, Response
 from src.exceptions import CREDENTIALS_EXCEPTION
 from src.constants import Constants
 from src.util import seconds_until
-from src.security import jwt
+from src.security import jwt_utils
 
 
 def _get_cookie_security_settings() -> dict:
@@ -24,9 +24,9 @@ async def require_role(access_token: Optional[str] = Cookie(default=None), *role
     """
     Base dependency to verify if the current user has at least one of the required roles.
     """
-    payload: dict = jwt.extract_jwt_token(access_token)
+    payload: dict = jwt_utils.extract_token(access_token)
     
-    role: Optional[str] = payload.get('role')
+    role: str | None = payload.get('role')
     if not role or role not in roles:
         raise CREDENTIALS_EXCEPTION
 

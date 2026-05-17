@@ -21,6 +21,7 @@ class ChapterCreate(ChapterBase):
 
 class ChapterUpdate(BaseModel):
 
+    id: UUID
     cover_path: Optional[str] = None
     sort_order: Optional[int] = Field(None, ge=0)
     num: Optional[Decimal] = Field(None, ge=0, max_digits=5, decimal_places=1)

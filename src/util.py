@@ -1,9 +1,10 @@
 from fastapi import Request
 from src.constants import Constants
+from src.schemas.device_info import DeviceInfo
 from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
 from typing import Any
-from ulid import ULID
+from uuid6 import uuid7
 import uuid
 import math
 import unicodedata
@@ -79,6 +80,13 @@ def get_real_client_ip(request: Request) -> str:
 
     # 5. Failsafe default if everything else is missing
     return "Unknown"
+
+
+def get_device_info(request: Request) -> DeviceInfo:
+    return DeviceInfo(
+        device=request.headers.get("user-agent", "Unknown"),
+        ip_address=get_real_client_ip(request)
+    )    
 
 
 def is_of_legal_age(birthdate: date, legal_age: int = 18) -> bool:
@@ -179,5 +187,5 @@ def is_uuid(v: str):
         return False
     
 
-def generate_uuidv7() -> str:
-    return str(ULID())
+def generate_uuid_v7() -> str:
+    return str(uuid7())

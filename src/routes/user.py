@@ -1,13 +1,12 @@
+from src.exceptions import EMPTY_UPDATE_EXCEPTION, ResourceNotFoundException
 from fastapi import APIRouter, Depends, Request, status, Cookie
-from fastapi.exceptions import HTTPException
 from src.schemas.user import UserUpdate, UserPublicResponse
-from src.exceptions import DuplicateRecordError
 from src.db import db_connection
 from src.tables import user as user_table
 from src.dependencies import get_limiter
 from typing import Optional
 from asyncpg import Connection
-from src.security import jwt
+from src.security import jwt_utils
 
 
 router = APIRouter(
@@ -25,36 +24,18 @@ async def update_user(
     access_token: Optional[str] = Cookie(default=None),
     conn: Connection = Depends(db_connection)
 ):
-    user_id: str = jwt.extract_user_id_from_jwt_access_token(access_token)
+    user_id: str = jwt_utils.extract_value_from_token(access_token, "sub")
     
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid or missing authentication token."
-        )
-    
-    if not payload.model_dump(exclude_unset=True):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No valid fields provided for update."
-        )
+    if not payload.model_dump(exclude_unset=True): 
+        raise EMPTY_UPDATE_EXCEPTION
 
-    try:
-        updated_user: UserPublicResponse | None = await user_table.update_user(
-            user_id=user_id, 
-            payload=payload,
-            conn=conn
-        )
-    except DuplicateRecordError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=e.message
-        )
+    updated_user: UserPublicResponse | None = await user_table.update_user(
+        user_id=user_id, 
+        payload=payload,
+        conn=conn
+    )
     
     if not updated_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User account no longer exists."
-        )
+        raise ResourceNotFoundException("User account")
         
     return updated_user

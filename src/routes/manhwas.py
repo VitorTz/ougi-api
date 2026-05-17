@@ -1,6 +1,6 @@
 from src.schemas.manhwas import ManhwaCatalogResponse, ManhwaSearchResponse
-from fastapi import APIRouter, Query, status, Depends, Request
-from fastapi.exceptions import HTTPException
+from fastapi import APIRouter, Query, Depends, Request
+from src.exceptions import ResourceNotFoundException
 from typing import Optional
 from asyncpg import Connection
 from src.db import db_connection
@@ -32,13 +32,7 @@ async def get_manhwa(
     Retrieves the complete catalog information of a specific manhwa by its ID or slug.
     """
     manhwa: ManhwaCatalogResponse | None = await manhwas_table.get_manhwa(identifier, conn)
-
-    if not manhwa:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Manhwa not found."
-        )
-
+    if not manhwa: raise ResourceNotFoundException("Manhwa")
     return manhwa
 
 

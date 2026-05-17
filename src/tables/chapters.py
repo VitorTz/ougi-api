@@ -76,8 +76,8 @@ async def get_chapters_from_manhwa(
     )
 
     
-async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: Connection) -> ChapterResponse:
-    update_data = chapter_update.model_dump(exclude_unset=True)
+async def update_chapter(chapter: ChapterUpdate, conn: Connection) -> ChapterResponse:
+    update_data = chapter.model_dump(exclude_unset=True)
     if not update_data: 
         return
 
@@ -91,7 +91,7 @@ async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: C
     # Add updated_at timestamp
     set_clauses.append("updated_at = NOW()")
     
-    params.append(chapter_id)
+    params.append(chapter.id)
     set_query = ", ".join(set_clauses)
     
     query = f"""
@@ -107,15 +107,14 @@ async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: C
     
     try:
         row = await conn.fetchrow(query, *params)
-        if row:
-            return ChapterResponse(row)
+        return ChapterResponse(**row) if row else None
     except UniqueViolationError as e:
         raise DatabaseException(
             client_message="Chapter with this sort_order or num already exists for this manhwa.",
             original_error=e,
             query=query,
             params=params,
-            additional_context={"action": "update_chapter", "chapter_id": str(chapter_id)}
+            additional_context={"action": "update_chapter", "chapter_id": str(chapter.id)}
         )
     except Exception as e:
         raise DatabaseException(
@@ -123,7 +122,7 @@ async def update_chapter(chapter_id: str, chapter_update: ChapterUpdate, conn: C
             original_error=e,
             query=query,
             params=params,
-            additional_context={"action": "update_chapter", "chapter_id": str(chapter_id)}
+            additional_context={"action": "update_chapter", "chapter_id": str(chapter.id)}
         )
     
 
