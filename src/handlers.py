@@ -57,7 +57,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     
     background_tasks = BackgroundTasks()
         
-    background_tasks.add_task(
+    BackgroundTasks().add_task(
         logs_table.insert_log,
         error_type=type(exc).__name__,
         error_message=str(exc),

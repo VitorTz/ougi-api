@@ -1,10 +1,10 @@
-from typing import Optional, Protocol
+from typing import Protocol
 from passlib.context import CryptContext
 
 
 class PasswordHasher(Protocol):
 
-    def get_password_hash(self, password: str) -> Optional[str]:
+    def get_password_hash(self, password: str) -> str | None:
         pass
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
@@ -19,7 +19,7 @@ class PasslibArgon2Hasher:
             deprecated="auto"
         )
 
-    def get_password_hash(self, password: str) -> Optional[str]:
+    def get_password_hash(self, password: str) -> str | None:
         if not password: return None
         return self.pwd_context.hash(password)
 
@@ -35,7 +35,7 @@ class PasslibBcryptHasher:
     def __init__(self) -> None:
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    def get_password_hash(self, password: str) -> Optional[str]:
+    def get_password_hash(self, password: str) -> str | None:
         if not password: return None
         return self.pwd_context.hash(password)
 

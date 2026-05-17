@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query, status, Depends, Request, Path
-from src.schemas.manhwas import ManhwaCatalogResponse
+from src.schemas.manhwas import ManhwaCatalogResponse, ManhwaSearchResponse
+from fastapi import APIRouter, Query, status, Depends, Request
 from fastapi.exceptions import HTTPException
 from typing import Optional
 from asyncpg import Connection
@@ -20,92 +20,78 @@ limiter = get_limiter()
 @limiter.limit("32/minute")
 async def get_manhwa(
     request: Request,
-    id: str = Query(default=None),
+    identifier: str = Query(
+        ...,
+        title="Manhwa Identifier",
+        description="The unique identifier of the manhwa. It can be either the exact UUID or the SEO-friendly text slug.",
+        examples=["stop-smoking", "550e8400-e29b-41d4-a716-446655440000"]
+    ),
     conn: Connection = Depends(db_connection),
 ):    
-    row = await manhwas_table.get_manhwa_by_id(id, conn)
+    """
+    Retrieves the complete catalog information of a specific manhwa by its ID or slug.
+    """
+    manhwa: ManhwaCatalogResponse | None = await manhwas_table.get_manhwa(identifier, conn)
 
-    if not row:
+    if not manhwa:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Manhwa not found."
         )
 
-    return ManhwaCatalogResponse(row)
+    return manhwa
 
 
-@router.get("/search", response_model=Pagination[ManhwaCatalogResponse])
+@router.get("/search", response_model=Pagination[ManhwaSearchResponse])
 @limiter.limit("32/minute")
 async def search_manhwa(
     request: Request,
-    title: Optional[str] = Query(default=None),
-    genres: Optional[list[str]] = Query(default=None),
-    exclude_warnings: Optional[list[str]] = Query(default=None),
-    scans: Optional[list[str]] = Query(default=None),
-    tags: Optional[list[str]] = Query(default=None),
-    is_adult: Optional[bool] = Query(default=None),
-    status_filter: Optional[str] = Query(default=None, alias="status"),
-    order_by: str = Query(default="last_chapter_updated_at", enum=["last_chapter_updated_at", "total_views", "avg_rating", "created_at"]),
+    title: Optional[str] = Query(
+        default=None, 
+        description="Search by exact or partial manhwa title"
+    ),
+    genres: list[str] = Query(
+        default=[],
+        description="Filter by genres (repeat param: ?genres=Action&genres=Fantasy)"
+    ),
+    exclude_warnings: list[str] = Query(
+        default=[],
+        description="Exclude specific content warnings (repeat param: ?exclude_warnings=Gore&exclude_warnings=Tragedy)"
+    ),
+    scans: list[str] = Query(
+        default=[],
+        description="Filter by scanlator groups (repeat param: ?scans=Asura&scans=Flame)"
+    ),
+    tags: list[str] = Query(
+        default=[],
+        description="Filter by specific tags (repeat param: ?tags=System&tags=Magic)"
+    ),
+    status: Optional[str] = Query(
+        default=None,
+        description="Filter by publication status (e.g., Ongoing, Completed)"
+    ),
+    order_by: str = Query(
+        default="last_chapter_updated_at", 
+        enum=["last_chapter_updated_at", "total_views", "avg_rating", "created_at"],
+        description="Define the sorting criteria for the results"
+    ),
     limit: int = Query(default=32, ge=1, le=64),
     offset: int = Query(default=0, ge=0),
     conn: Connection = Depends(db_connection),
 ):
-    conditions = []
-    params = []
-
-    if title:
-        params.append(title)
-        conditions.append(f"title % ${len(params)}")
-
-    if genres:
-        params.append(genres)
-        conditions.append(f"genres @> ${len(params)}::citext[]")
-
-    if exclude_warnings:
-        params.append(exclude_warnings)
-        conditions.append(f"NOT (content_warnings && ${len(params)}::citext[])")
-
-    if scans:
-        params.append(scans)
-        conditions.append(f"scans @> ${len(params)}::citext[]")
-
-    if tags:
-        params.append(tags)
-        conditions.append(f"tags @> ${len(params)}::citext[]")
-
-    if is_adult is not None:
-        params.append(is_adult)
-        conditions.append(f"is_adult = ${len(params)}")
-
-    if status_filter:
-        params.append(status_filter)
-        conditions.append(f"status = ${len(params)}::manhwa_status_type")
-
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    allowed_order = {"last_chapter_updated_at", "total_views", "avg_rating", "created_at"}
-    order_col = order_by if order_by in allowed_order else "last_chapter_updated_at"
-
-    params.extend([limit, offset])
-    query = f"""
-        SELECT 
-            *
-        FROM 
-            mv_manhwa_catalog
-        {where_clause}
-        ORDER BY 
-            {order_col} DESC NULLS LAST
-        LIMIT 
-            ${len(params) - 1}
-        OFFSET 
-            ${len(params)}
     """
-
-    rows = await conn.fetch(query, *params)
-
-    return Pagination(
-        items=[ManhwaCatalogResponse(r) for r in rows],
+    Advanced search endpoint for the manhwa catalog. 
+    Allows filtering by multiple criteria including repeating array parameters.
+    """
+    return await manhwas_table.search_manhwa(
+        conn=conn,
+        title=title,
+        genres=genres,
+        exclude_warnings=exclude_warnings,
+        scans=scans,
+        tags=tags,
+        status=status,
+        order_by=order_by,
         limit=limit,
         offset=offset
     )
-

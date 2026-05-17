@@ -1,18 +1,20 @@
+from src.exceptions import DatabaseException
+from asyncpg import Connection
 from datetime import datetime
 from typing import Optional
-from src.tables import logs as logs_table
-from src import db
-import traceback
 
 
-async def process_token_rotation_bg(
+async def process_token_rotation(
     new_token_id: str,
     user_id: str,
     expires_at: datetime,
     new_family_id: str,
-    old_family_id: Optional[str] = None,
-    old_token_id: Optional[str] = None
+    conn: Connection,
+    old_family_id: Optional[str] = None
 ):
+    """
+    Synchronously revokes the old token family and inserts the new refresh token.
+    """
     query = """
         WITH revoke_old_family AS (
             UPDATE 
@@ -21,8 +23,7 @@ async def process_token_rotation_bg(
                 revoked = TRUE,
                 replaced_by = $1
             WHERE
-                id = $2
-                OR family_id = $3
+                family_id = $2
         )
         INSERT INTO refresh_tokens (
             id, 
@@ -31,48 +32,43 @@ async def process_token_rotation_bg(
             family_id
         )
         VALUES 
-            ($4, $5, $6, $7);
+            ($1, $3, $4, $5);
     """
 
-    params = (
+    sql_params = (
         new_token_id,
-        old_token_id,
         old_family_id,
-        new_token_id,
         user_id,
         expires_at,
         new_family_id
     )
 
-    async with db.pool.acquire() as conn:
-        try:
-            await conn.execute(query, *params)            
-        except Exception as e:
-            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            await logs_table.insert_log(
-                error_type=type(e).__name__,
-                error_message=str(e),
-                error_level="CRITICAL",
-                user_id=user_id,
-                failed_query=query,
-                query_parameters={
-                    "new_token_id": new_token_id,
-                    "old_token_id": old_token_id,
-                    "old_family_id": old_family_id,
-                    "user_id": user_id,
-                    "expires_at": expires_at.isoformat() if expires_at else None, 
-                    "new_family_id": new_family_id
-                },
-                execution_context={
-                    "action": "process_token_rotation_bg",
-                    "description": "Failed to rotate refresh token family in background task."
-                },
-                stack_trace=tb_str,
-                conn=conn
-            )
+    try:
+        await conn.execute(query, *sql_params)            
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred during authentication. Please try logging in again.",
+            original_error=e,
+            query=query,
+            params={
+                "new_token_id": new_token_id,
+                "old_family_id": old_family_id,
+                "user_id": user_id,
+                "expires_at": expires_at.isoformat() if expires_at else None, 
+                "new_family_id": new_family_id
+            },
+            additional_context={
+                "action": "process_token_rotation",
+                "description": "Failed to safely rotate the refresh token family."
+            },
+            user_id=str(user_id)
+        )
+    
 
-
-async def task_revoke_token_by_family(family_id: str) -> None:
+async def revoke_token_by_family(family_id: str, conn: Connection) -> None:
+    """
+    Synchronously revokes a refresh token family.
+    """
     query = """
         UPDATE 
             refresh_tokens
@@ -82,61 +78,80 @@ async def task_revoke_token_by_family(family_id: str) -> None:
             family_id = $1;
     """
 
-    async with db.pool.acquire() as conn:
-        try:
-            await conn.execute(query, family_id)
-        except Exception as e:
-            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))        
-            await logs_table.insert_log(
-                error_type=type(e).__name__,
-                error_message=str(e),
-                error_level="CRITICAL",
-                failed_query=query,
-                query_parameters={
-                    "family_id": family_id
-                },
-                execution_context={
-                    "action": "task_revoke_token_by_family",
-                    "description": "Failed to revoke token family in background task. Reusing connection for log."
-                },
-                stack_trace=tb_str,
-                conn=conn
-            )
+    try:
+        await conn.execute(query, family_id)
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred while processing your session. Please try again.",
+            original_error=e,
+            query=query,
+            params={
+                "family_id": family_id
+            },
+            additional_context={
+                "action": "task_revoke_token_by_family",
+                "description": "Failed to safely revoke token family. Security risk."
+            }
+        )
 
 
-async def revoke_all_other_sessions_bg(user_id: str, current_family_id: str) -> None:
+async def revoke_all_user_sessions(user_id: str, conn: Connection) -> None:
+    """
+    Revokes all active sessions for a user.
+    """
     query = """
         UPDATE 
             refresh_tokens
         SET 
             revoked = TRUE
         WHERE 
-            user_id = $1 
-            AND family_id != $2
-            AND revoked = FALSE;
+            user_id = $1;
+    """    
+    try:
+        await conn.execute(query, user_id)
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred while logging out of all devices. Please try again.",
+            original_error=e,
+            query=query,
+            params={
+                "user_id": user_id
+            },
+            additional_context={
+                "action": "revoke_all_other_sessions",
+                "description": "Failed to revoke all other user sessions. Potential security risk."
+            },
+            user_id=str(user_id)
+        )
+    
+
+async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> int:
     """
-    async with db.pool.acquire() as conn:
-        try:
-            await conn.execute(
-                query,
-                user_id,
-                current_family_id
-            )
-        except Exception as e:
-            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))        
-            await logs_table.insert_log(
-                error_type=type(e).__name__,
-                error_message=str(e),
-                error_level="CRITICAL",
-                failed_query=query,
-                user_id=user_id,
-                query_parameters={
-                    "current_family_id": current_family_id
-                },
-                execution_context={
-                    "action": "task_revoke_all_other_sessions_bg",
-                    "description": "Failed to revoke all user sessions in background task. Reusing connection for log."
-                },
-                stack_trace=tb_str,
-                conn=conn
-            )
+    Deletes refresh tokens that have been expired or revoked for longer than 
+    the specified number of days. Active sessions are never touched.
+    Returns the total number of deleted records.
+    """    
+    query = """
+        DELETE FROM 
+            refresh_tokens 
+        WHERE 
+            expires_at < NOW() - make_interval(days => $1)
+            OR revoked_at < NOW() - make_interval(days => $1);
+    """
+    
+    try:
+        command_tag = await conn.execute(query, days_to_keep)        
+        _, deleted_count = command_tag.split(" ")
+        return int(deleted_count)
+        
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An error occurred while cleaning up old refresh tokens.",
+            original_error=e,
+            query=query,
+            params=[days_to_keep],
+            additional_context={
+                "action": "delete_expired_refresh_tokens", 
+                "days_to_keep": days_to_keep
+            }
+        )

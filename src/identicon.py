@@ -235,16 +235,6 @@ def generate_banner_identicon(identifier: str, width: int = 1500, height: int = 
 </svg>"""
 
 
-def build_avatar_svg_url(username: str) -> str:
-    """Build avatar SVG URL."""
-    return f"{Constants.API_PREFIX}/identicons/{username.strip()}/avatar.svg"
-
-
-def build_banner_svg_url(username: str) -> str:
-    """Build banner SVG URL."""
-    return f"{Constants.API_PREFIX}/identicons/{username.strip()}/banner.svg"
-
-
 def generate_etag(v: str) -> str:
     """Gera ETag MD5."""
     return f'"{hashlib.md5(v.strip().encode()).hexdigest()}"'

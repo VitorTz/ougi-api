@@ -5,11 +5,9 @@ from slowapi import _rate_limit_exceeded_handler
 from src.constants import Constants
 from src.routes import manhwas
 from src.routes import auth
-from src.routes import logs
 from src.routes import admin
 from src.routes import chapters
 from src.routes import moderator
-from src.routes import audit_log
 from src.routes import identicon
 from src.exceptions import DatabaseException
 from fastapi.middleware.gzip import GZipMiddleware
@@ -42,7 +40,10 @@ app = FastAPI(
     title=Constants.API_NAME,
     description=Constants.API_DESCR,
     version=Constants.API_VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if Constants.IS_PRODUCTION else "/docs",
+    redoc_url=None if Constants.IS_PRODUCTION else "/redoc",
+    openapi_url=None if Constants.IS_PRODUCTION else "/openapi.json"
 )
 
 
@@ -123,8 +124,6 @@ api_v1_router.include_router(auth.router)
 api_v1_router.include_router(manhwas.router)
 api_v1_router.include_router(chapters.router)
 api_v1_router.include_router(identicon.router)
-api_v1_router.include_router(logs.router)
-api_v1_router.include_router(audit_log.router)
 
 
 app.include_router(api_v1_router)

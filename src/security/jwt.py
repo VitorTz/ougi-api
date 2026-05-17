@@ -1,12 +1,11 @@
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Any
 from src.exceptions import CREDENTIALS_EXCEPTION
 from src.schemas.token import AccessTokenCreate, RefreshTokenCreate
 from src.constants import Constants
+from typing import Any
 from uuid import UUID
 from src import util
 import jwt
-
     
     
 def create_jwt_access_token(user_id: str, role: str) -> AccessTokenCreate:
@@ -29,18 +28,18 @@ def create_jwt_access_token(user_id: str, role: str) -> AccessTokenCreate:
 
 
 def extract_jwt_token(jwt_token: str) -> dict[str, Any]:
-    if not jwt_token: raise CREDENTIALS_EXCEPTION
+    if not jwt_token: 
+        raise CREDENTIALS_EXCEPTION
+        
     try:
         payload = jwt.decode(
             jwt_token,
             Constants.SECRET_KEY,
             algorithms=[Constants.ALGORITHM]
         )
+        return payload
     except Exception:
         raise CREDENTIALS_EXCEPTION
-    if not payload:
-        raise CREDENTIALS_EXCEPTION
-    return payload
     
     
 def extract_user_id_from_jwt_access_token(access_token: str) -> str:
@@ -49,7 +48,7 @@ def extract_user_id_from_jwt_access_token(access_token: str) -> str:
     if payload.get("type") != "access":
         raise CREDENTIALS_EXCEPTION
     
-    user_id = payload.get("sub")
+    user_id: str | None = payload.get("sub")
             
     if not user_id:
         raise CREDENTIALS_EXCEPTION
@@ -57,20 +56,20 @@ def extract_user_id_from_jwt_access_token(access_token: str) -> str:
     return user_id
     
     
-def create_jwt_refresh_token(user_id: str, family_id: Optional[UUID] = None) -> RefreshTokenCreate:
-    token_id = util.generate_cosmic_id()
+def create_jwt_refresh_token(user_id: str, family_id: UUID | None = None) -> RefreshTokenCreate:
+    token_id: str = util.generate_uuidv7()
+    family_id_str = str(family_id) if family_id else util.generate_uuidv7()
     expires_at = datetime.now(timezone.utc) + timedelta(days=Constants.REFRESH_TOKEN_EXPIRE_DAYS)
-    family_id = util.generate_cosmic_id() if not family_id else family_id
     
     payload = {
-        "sub": str(token_id),
-        "user_id": str(user_id),
-        "family_id": str(family_id),
+        "sub": str(user_id),
+        "jti": str(token_id),
+        "family_id": family_id_str,
         "exp": expires_at,
         "type": "refresh"
     }
     
-    jwt_token: str = jwt.encode(
+    jwt_token = jwt.encode(
         payload,
         Constants.SECRET_KEY,
         algorithm=Constants.ALGORITHM
@@ -79,42 +78,45 @@ def create_jwt_refresh_token(user_id: str, family_id: Optional[UUID] = None) -> 
     return RefreshTokenCreate(
         token_id=token_id,
         expires_at=expires_at,
-        family_id=family_id,
+        family_id=family_id_str,
         replaced_by=None,
         jwt_token=jwt_token
     )
-    
-    
-def extract_jwt_refresh_token_id(jwt_refresh_token: str) -> str:
+
+
+def _validate_and_extract_refresh_payload(jwt_refresh_token: str) -> dict[str, Any]:
     payload = extract_jwt_token(jwt_refresh_token)
     
     if payload.get("type") != "refresh":
         raise CREDENTIALS_EXCEPTION
+        
+    return payload
+    
 
-    refresh_token_id: str = payload.get("sub")
+def extract_jwt_refresh_token_id(jwt_refresh_token: str) -> str:
+    payload = _validate_and_extract_refresh_payload(jwt_refresh_token)
+    
+    refresh_token_id: str | None = payload.get("jti")
             
     if not refresh_token_id:
         raise CREDENTIALS_EXCEPTION
     
-    return refresh_token_id
+    return str(refresh_token_id)
     
     
 def extract_jwt_refresh_token_family_id(jwt_refresh_token: str) -> str:
-    payload = extract_jwt_token(jwt_refresh_token)
+    payload = _validate_and_extract_refresh_payload(jwt_refresh_token)
     
-    if payload.get("type") != "refresh":
-        raise CREDENTIALS_EXCEPTION
-
-    family_id: str = payload.get("family_id")
+    family_id: str | None = payload.get("family_id")
             
     if not family_id:
         raise CREDENTIALS_EXCEPTION
     
-    return family_id
+    return str(family_id)
 
 
 def calculate_token_ttl(token: str | None) -> int:
-    if not token: return 0
+    if not token:  return 0
     
     try:
         payload = jwt.decode(
@@ -130,6 +132,7 @@ def calculate_token_ttl(token: str | None) -> int:
             
         current_timestamp = datetime.now(timezone.utc).timestamp()
         remaining_seconds = int(exp_timestamp - current_timestamp)
+        
         return max(0, remaining_seconds)
         
     except Exception:

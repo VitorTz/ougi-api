@@ -25,9 +25,9 @@ async def update_user(
     access_token: Optional[str] = Cookie(default=None),
     conn: Connection = Depends(db_connection)
 ):
-    user_id_str = jwt.extract_user_id_from_jwt_access_token(access_token)
+    user_id: str = jwt.extract_user_id_from_jwt_access_token(access_token)
     
-    if not user_id_str:
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid or missing authentication token."
@@ -40,9 +40,9 @@ async def update_user(
         )
 
     try:
-        updated_user = await user_table.update_user(
-            user_id=user_id_str, 
-            payload=payload, 
+        updated_user: UserPublicResponse | None = await user_table.update_user(
+            user_id=user_id, 
+            payload=payload,
             conn=conn
         )
     except DuplicateRecordError as e:
