@@ -69,7 +69,7 @@ async def login(
     identifier: LoginIdentifier,
     response: Response,
     background_tasks: BackgroundTasks,
-    device: DeviceInfo = Depends(util.get_device_info),
+    device_info: DeviceInfo = Depends(util.get_device_info),
     conn: Connection = Depends(db_connection),
     hasher: PasswordHasher = Depends(get_password_hasher),
     refresh_token: str | None = Cookie(default=None)
@@ -77,10 +77,9 @@ async def login(
     user_login_data: dict | None = await users_table.get_user_login_data(identifier.identifier, conn)
     
     if not user_login_data:
-        await login_attempts_table.insert_login_attempt(
-            identifier=identifier.identifier,
-            ip_address=device.ip_address,
-            success=False,
+        await login_attempts_table.insert_failed_login_attempt(
+            identifier.identifier,
+            device_info.ip_address,
             conn=conn
         )
         raise CREDENTIALS_EXCEPTION
@@ -89,14 +88,12 @@ async def login(
         raise MAX_LOGIN_ATTEMPT_EXCEPTION
     
     if not hasher.verify_password(identifier.password, user_login_data['password_hash']):
-        background_tasks.add_task(
-            login_attempts_table.insert_login_attempt,
-            identifier=identifier.identifier,
-            ip_address=device.ip_address,
-            success=False
+        await login_attempts_table.insert_failed_login_attempt(
+            identifier.identifier,
+            device_info.ip_address,
+            conn=conn
         )
         raise CREDENTIALS_EXCEPTION
-    
     
     user = UserPublicResponse(**user_login_data)
 
@@ -109,7 +106,7 @@ async def login(
         new_token_id,
         user.id,
         new_refresh_token.expires_at,
-        device,
+        device_info,
         conn,
         old_token_id
     )
@@ -123,10 +120,11 @@ async def login(
     )
 
     background_tasks.add_task(
-        login_attempts_table.insert_login_attempt,
+        login_attempts_table.insert_successful_login_attempt,
         identifier=identifier.identifier,
-        ip_address=device.ip_address,
-        success=True
+        ip_address=device_info.ip_address,
+        success=True,
+        conn=None
     )
     
     return user

@@ -1,5 +1,6 @@
 from src.exceptions import DatabaseException
 from src.schemas.device_info import DeviceInfo
+from src.schemas.token import ActiveSessionResponse
 from asyncpg import Connection
 from datetime import datetime
 from typing import Optional
@@ -12,14 +13,13 @@ async def process_token_rotation(
     expires_at: datetime,
     device_info: DeviceInfo,
     conn: Connection,
-    old_token_id: Optional[str] = None,
+    old_token_id: Optional[str] = None
 ):
     """
-    Rotaciona um token de refresh: revoga o token anterior (se existir) e insere o novo.    
-    Automaticamente reutiliza a family_id do token anterior ou gera uma nova.
-    Mantém a família para rastrear a cadeia de rotações.
+    Rotates a refresh token: revokes the previous token (if it exists) and inserts the new one.
+    Automatically reuses the old token's family_id or generates a new one.
+    Maintains the family chain to track token rotations and detect reuse.
     """
-    # Gera a family_id apenas se não houver token anterior
     new_family_id = util.generate_uuid_v7()
     
     query = """
@@ -29,23 +29,22 @@ async def process_token_rotation(
             FROM 
                 refresh_tokens
             WHERE 
-                id = $2 
-                AND user_id = $3
+                id = $2::uuid 
+                AND user_id = $3::uuid
         ),
         revoke_old_token AS (
             UPDATE 
                 refresh_tokens
             SET 
                 revoked = TRUE,
-                replaced_by = $1
+                replaced_by = $1::uuid
             WHERE
-                id = $2
-                AND user_id = $3
+                id = $2::uuid
+                AND user_id = $3::uuid
         )
         INSERT INTO refresh_tokens (
             id,
             user_id,
-            token_hash,
             device_info,
             ip_address,
             expires_at,
@@ -53,12 +52,12 @@ async def process_token_rotation(
         )
         VALUES 
             (
-                $1,           -- new_token_id
-                $3,           -- user_id
-                $4,           -- device_info
-                $5,           -- ip_address
+                $1::uuid,     -- new_token_id
+                $3::uuid,     -- user_id
+                $4,           -- device_info.device
+                $5::inet,     -- device_info.ip_address
                 $6,           -- expires_at
-                COALESCE((SELECT family_id FROM get_old_family), $7)
+                COALESCE((SELECT family_id FROM get_old_family), $7::uuid)
             );
     """
  
@@ -108,9 +107,13 @@ async def revoke_token_family(token_id: str, user_id: str, conn: Connection) -> 
             revoked = TRUE
         WHERE
             family_id = (
-                SELECT family_id 
-                FROM refresh_tokens 
-                WHERE id = $1::uuid AND user_id = $2::uuid
+                SELECT 
+                    family_id 
+                FROM 
+                    refresh_tokens 
+                WHERE 
+                    id = $1::uuid 
+                    AND user_id = $2::uuid
             )
             AND user_id = $2::uuid;
     """
@@ -223,11 +226,9 @@ async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> 
     """
     
     try:
-        command_tag = await conn.execute(query, days_to_keep)        
-        # comando_tag retorna algo como "DELETE 5"
+        command_tag = await conn.execute(query, days_to_keep)
         _, deleted_count = command_tag.split()
         return int(deleted_count)
-        
     except Exception as e:
         raise DatabaseException(
             client_message="An error occurred while cleaning up old sessions.",
@@ -241,16 +242,18 @@ async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> 
         )
 
 
-async def get_user_active_sessions(user_id: str, conn: Connection) -> list:
+async def get_user_active_sessions(
+    user_id: str, 
+    current_family_id: str, 
+    conn: Connection
+) -> list[ActiveSessionResponse]:
     """
-    Retorna todas as sessões ativas do usuário com informações dos dispositivos.
-    
-    Returns:
-        Lista de dicts com: id, device_info, ip_address, created_at, expires_at
+    Retrieves all active sessions for the user, hiding sensitive internal data.
+    Flags the session that made the request as 'is_current_session'.
     """
     query = """
         SELECT 
-            id,
+            family_id AS session_id,
             device_info,
             ip_address,
             created_at,
@@ -258,7 +261,7 @@ async def get_user_active_sessions(user_id: str, conn: Connection) -> list:
         FROM 
             refresh_tokens
         WHERE 
-            user_id = $1
+            user_id = $1::uuid
             AND revoked = FALSE
             AND expires_at > NOW()
         ORDER BY 
@@ -267,15 +270,27 @@ async def get_user_active_sessions(user_id: str, conn: Connection) -> list:
     
     try:
         rows = await conn.fetch(query, user_id)
-        return [dict(row) for row in rows]
+        
+        sessions = []
+        for row in rows:
+            session_data = dict(row)            
+            is_current = str(session_data["session_id"]) == str(current_family_id)
+            session_data["is_current_session"] = is_current            
+            sessions.append(ActiveSessionResponse(**session_data))
+
+        return sessions
     except Exception as e:
         raise DatabaseException(
-            client_message="An error occurred while fetching your sessions.",
+            client_message="An error occurred while fetching your active sessions.",
             original_error=e,
             query=query,
-            params={"user_id": user_id},
+            params={
+                "user_id": user_id, 
+                "current_family_id": current_family_id
+            },
             additional_context={
                 "action": "get_user_active_sessions",
+                "description": "Failed to retrieve active sessions from the database."
             },
             user_id=str(user_id),
         )

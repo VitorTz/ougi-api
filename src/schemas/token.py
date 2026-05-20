@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict
+from typing import Optional
 from datetime import datetime
 from uuid import UUID
 
@@ -15,6 +16,7 @@ class RefreshTokenResponse(BaseModel):
     user_id: UUID
     device_info: str
     ip_address: str
+    created_at: datetime
     expires_at: datetime
     revoked: bool
     replaced_by: UUID | None = None
@@ -23,11 +25,17 @@ class RefreshTokenResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
 
-class SessionResponse(BaseModel):
+class ActiveSessionResponse(BaseModel):
     
-    family_id: UUID
-    session_started_at: datetime
+    """
+    Public-facing model for a user's session. 
+    Hides internal token hashes and DB primary keys.
+    """
+    session_id: UUID
+    device_info: Optional[str]
+    ip_address: Optional[str]
+    created_at: datetime
     expires_at: datetime
-    is_current_session: bool = False
+    is_current_session: bool
 
     model_config = ConfigDict(from_attributes=True)
