@@ -5,7 +5,7 @@ from slowapi import _rate_limit_exceeded_handler
 from src.constants import Constants
 from src.routes import manhwas
 from src.routes import auth
-from src.routes import admin
+from src.routes.admin import router as admin
 from src.routes import chapters
 from src.routes import moderator
 from src.routes import identicon
@@ -95,7 +95,6 @@ def read_root(request: Request):
         "request_id": request.state.request_id,
         "version": Constants.API_VERSION,
     }
-
 
 
 @api_v1_router.get("/health", status_code=status.HTTP_200_OK)

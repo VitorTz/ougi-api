@@ -80,7 +80,6 @@ async def insert_log(
             )
 
 
-
 async def get_logs(
     limit: int,
     offset: int,
@@ -161,6 +160,7 @@ async def get_logs(
         offset=offset
     )
 
+
 async def get_log_by_id(log_id: UUID, conn: Connection) -> SystemLogResponse | None:
     """
     Retrieves a specific log entry by its UUID using the global connection pool.
@@ -195,6 +195,7 @@ async def delete_log_by_id(log_id: UUID, conn: Connection) -> str | None:
         "DELETE FROM system_logs WHERE id = $1;",
         log_id
     )
+
 
 async def delete_logs(days_to_keep: int, conn: Connection) -> int:
     """

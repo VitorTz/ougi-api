@@ -1,8 +1,11 @@
-from fastapi import status, Request, Path, Depends
-from src.routes.admin import router, limiter
+from fastapi import APIRouter, status, Request, Path, Depends
 from asyncpg import Connection
+from src.dependencies import get_limiter
 from src import db
 
+
+router = APIRouter()
+limiter = get_limiter()
 
 @router.post("/database/refresh_mv/{mv_name}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")

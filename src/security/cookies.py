@@ -7,17 +7,12 @@ from src.util import seconds_until
 from src.security import jwt_utils
 
 
-def _get_cookie_security_settings() -> dict:
-    """
-    Internal helper to define cookie security flags based on the environment.
-    Prevents code duplication across set and unset functions.
-    """
-    return {
-        "secure": True if Constants.IS_PRODUCTION else False,
-        "samesite": "none" if Constants.IS_PRODUCTION else "lax",
-        "httponly": True,
-        "path": "/"
-    }
+COOKIE_SECURITY_SETTINGS = {
+    "secure": True if Constants.IS_PRODUCTION else False,
+    "samesite": "none" if Constants.IS_PRODUCTION else "lax",
+    "httponly": True,
+    "path": "/"
+}
 
 
 async def require_role(access_token: Optional[str] = Cookie(default=None), *roles: str) -> None:
@@ -48,23 +43,21 @@ def set_session_cookie(
     refresh_token_jwt: str,
     refresh_token_expires_at: datetime
 ):
-    settings = _get_cookie_security_settings()    
     response.set_cookie(
         key="access_token",
         value=access_token_jwt,
         max_age=seconds_until(access_token_expires_at),
-        **settings
+        **COOKIE_SECURITY_SETTINGS
     )
         
     response.set_cookie(
         key="refresh_token",
         value=refresh_token_jwt,
         max_age=seconds_until(refresh_token_expires_at),
-        **settings
+        **COOKIE_SECURITY_SETTINGS
     )
 
     
 def unset_session_cookie(response: Response):
-    settings = _get_cookie_security_settings()
-    response.delete_cookie(key="access_token", **settings)
-    response.delete_cookie(key="refresh_token", **settings)
+    response.delete_cookie(key="access_token", **COOKIE_SECURITY_SETTINGS)
+    response.delete_cookie(key="refresh_token", **COOKIE_SECURITY_SETTINGS)

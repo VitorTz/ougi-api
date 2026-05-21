@@ -99,6 +99,7 @@ async def get_user_login_data(identifier: str, conn: Connection) -> Optional[dic
             }
         )
 
+
 async def create_user(user: UserCreate, conn: Connection):
     query = """
         INSERT INTO users (

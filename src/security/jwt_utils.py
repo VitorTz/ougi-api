@@ -104,7 +104,7 @@ def calculate_token_ttl(token: str | None) -> int:
             token,
             Constants.SECRET_KEY,
             algorithms=[Constants.ALGORITHM],
-            options={"verify_exp": False} # Crucial for TTL extraction
+            options={"verify_exp": False}
         )
         
         exp_timestamp = payload.get("exp")

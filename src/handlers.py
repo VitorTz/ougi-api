@@ -47,6 +47,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+
 async def global_exception_handler(request: Request, exc: Exception):
     client_ip = util.get_real_client_ip(request)
     client_user_agent = request.headers.get("user-agent")

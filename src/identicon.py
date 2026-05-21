@@ -336,7 +336,6 @@ def generate_banner_identicon(identifier: str, width: int = 1500, height: int = 
 </svg>"""
 
 
-
 def generate_etag(v: str) -> str:
     """Gera ETag MD5."""
     return f'"{hashlib.md5(v.strip().encode()).hexdigest()}"'
