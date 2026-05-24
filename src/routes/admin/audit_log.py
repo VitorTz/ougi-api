@@ -15,11 +15,11 @@ from asyncpg import Connection
 from typing import Optional
 
 
-router = APIRouter()
+router = APIRouter(prefix="/audit-log")
 limiter = get_limiter()
 
 
-@router.get("/audit-log", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)
+@router.get("", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def list_audit_logs(
     request: Request,
@@ -45,7 +45,7 @@ async def list_audit_logs(
     )
 
 
-@router.get("/audit-log/{log_id}", response_model=AuditLogResponse, status_code=status.HTTP_200_OK)
+@router.get("/{log_id}", response_model=AuditLogResponse, status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def get_audit_log_details(
     request: Request,
@@ -63,7 +63,7 @@ async def get_audit_log_details(
     return log_entry
 
 
-@router.delete("/audit-log/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def delete_audit_log(
     request: Request, 
@@ -78,7 +78,7 @@ async def delete_audit_log(
     if not success: raise ResourceNotFoundException("Audit log entry")
 
 
-@router.delete("/audit-log", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def clear_old_audit_logs(
     request: Request,

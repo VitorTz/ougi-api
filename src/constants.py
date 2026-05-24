@@ -7,24 +7,24 @@ load_dotenv()
 
 class Constants:
 
-    API_NAME = os.getenv("API_NAME")
-    API_VERSION = os.getenv("API_VERSION")
-    API_DESCR =  os.getenv("API_DESCR")
+    API_NAME = "Ougi Api"
+    API_VERSION = "1.0.0"
+    API_DESCR = "High-performance API for the Ougi ecosystem, managing the manhwa catalog, secure authentication, and community interactions."
     API_PREFIX = os.getenv("API_PREFIX")
     CLOUDFLARE_PREFIX = os.getenv("CLOUDFLARE_PREFIX")
     
-    DEFAULT_AVATAR_SIZE = int(os.getenv("DEFAULT_AVATAR_SIZE", 120))
-    DEFAULT_BANNER_WIDTH = int(os.getenv("DEFAULT_BANNER_WIDTH", 1500))
-    DEFAULT_BANNER_HEIGHT = int(os.getenv("DEFAULT_BANNER_HEIGHT", 500))
+    DEFAULT_AVATAR_SIZE = 120
+    DEFAULT_BANNER_WIDTH = 1500
+    DEFAULT_BANNER_HEIGHT = 500
 
     IS_PRODUCTION = os.getenv("ENV", "DEV").lower().upper() == "PROD"
 
-    REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 7))
-    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
+    REFRESH_TOKEN_EXPIRE_DAYS = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES = 15
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
 
-    MAX_FAILED_LOGIN_ATTEMPTS = 5    
+    MAX_FAILED_LOGIN_ATTEMPTS = 5
 
     RESTRICTED_NAMES = {        
         "ougi",

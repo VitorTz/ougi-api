@@ -1,13 +1,14 @@
 from fastapi import APIRouter, status, Request, Path, Depends
-from asyncpg import Connection
 from src.dependencies import get_limiter
+from asyncpg import Connection
 from src import db
 
 
-router = APIRouter()
+router = APIRouter(prefix="/database")
 limiter = get_limiter()
 
-@router.post("/database/refresh_mv/{mv_name}", status_code=status.HTTP_204_NO_CONTENT)
+
+@router.post("/refresh_mv/{mv_name}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def refresh_materialized_view(
     request: Request,

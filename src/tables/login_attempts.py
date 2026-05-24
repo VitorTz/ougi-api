@@ -25,12 +25,12 @@ async def insert_login_attempt(
             $3
         );
     """
-    
+    params = (identifier, ip_address, success)
     if conn is None:
-        async with db.pool.acquire() as acquired_conn:
-            await acquired_conn.execute(query, identifier, ip_address, success)
-    else:
-        await conn.execute(query, identifier, ip_address, success)
+        return await conn.execute(query, *params)
+    
+    async with db.pool.acquire() as acquired_conn:
+        await acquired_conn.execute(query, *params)
 
 
 async def insert_failed_login_attempt(identifier: str, ip_address: str, conn: Connection) -> None:

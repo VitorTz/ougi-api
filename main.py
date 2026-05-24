@@ -6,15 +6,19 @@ from src.constants import Constants
 from src.routes import manhwas
 from src.routes import auth
 from src.routes.admin import router as admin
+from src.routes.moderator import router as moderator
 from src.routes import chapters
-from src.routes import moderator
 from src.routes import identicon
-from src.exceptions import DatabaseException
+from src.exceptions import DatabaseException, DuplicateRecordError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError, HTTPException
-from src import middlewares
+from src.middlewares.bot_detection import BotDetectionMiddleware
+from src.middlewares.security_header import SecurityHeadersMiddleware
+from src.middlewares.request_id import RequestIDMiddleware
+from src.middlewares.size_limit import RequestSizeLimitMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from src import db
 from src import handlers
 from src.dependencies import get_limiter
@@ -35,7 +39,6 @@ async def lifespan(app: FastAPI):
     print(f"[API] [SHUTTING DOWN {Constants.API_NAME}]")
 
 
-
 app = FastAPI(
     title=Constants.API_NAME,
     description=Constants.API_DESCR,
@@ -48,12 +51,9 @@ app = FastAPI(
 
 
 ############################ Middlewares #############################
-
-if Constants.IS_PRODUCTION:
-    app.add_middleware(middlewares.HTTPSRedirectMiddleware)
-
-app.add_middleware(middlewares.SecurityHeadersMiddleware)
-app.add_middleware(middlewares.RequestIDMiddleware)
+app.add_middleware(GZipMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(BotDetectionMiddleware)
 
 if Constants.IS_PRODUCTION:
     app.add_middleware(
@@ -67,9 +67,11 @@ if Constants.IS_PRODUCTION:
         allow_headers=["Content-Type", "Authorization"],
     )
 
-app.add_middleware(middlewares.BotDetectionMiddleware)
-app.add_middleware(middlewares.RequestSizeLimitMiddleware, max_upload_size=10 * 1024 * 1024)
-app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+if Constants.IS_PRODUCTION:
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 
 ############################ Exception Handlers #############################
@@ -79,6 +81,7 @@ app.add_exception_handler(StarletteHTTPException, handlers.http_exception_handle
 app.add_exception_handler(DatabaseException, handlers.database_exception_handler)
 app.add_exception_handler(Exception, handlers.global_exception_handler)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(DuplicateRecordError, handlers.duplicate_record_exception_handler)
 
 app.state.limiter = limiter
 

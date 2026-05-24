@@ -7,10 +7,9 @@ from fastapi import (
     BackgroundTasks
 )
 from src.exceptions import (
-    ACCOUNT_NOT_FOUND_EXCEPTION,
-    CREDENTIALS_EXCEPTION, 
-    MAX_LOGIN_ATTEMPT_EXCEPTION,
-    FORBIDDEN_EXCEPTION
+    CredentialsException,
+    MaxLoginAttemptException,
+    AccountNotFoundException    
 )
 from fastapi.responses import Response
 from src.constants import Constants
@@ -19,6 +18,7 @@ from src.schemas.user import UserPublicResponse, UserCreate
 from src.schemas.login import LoginIdentifier
 from src.schemas.token import JWtTokenCreate
 from src.schemas.device_info import DeviceInfo
+from src.schemas.session_pulse import SessionPulseResponse
 from src.tables import user as users_table
 from src.tables import tokens as tokens_table
 from src.tables import login_attempts as login_attempts_table
@@ -35,34 +35,58 @@ router = APIRouter(prefix="/auth", tags=['auth'])
 limiter = get_limiter()
 
 
-@router.get("/me", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
+@router.get(
+    "/me", 
+    status_code=status.HTTP_200_OK, 
+    response_model=UserPublicResponse,
+    summary="Get current user profile",
+    description="Retrieves the profile information of the currently authenticated user based on the access token stored in the cookies. Returns a 401 Unauthorized error if the token is invalid or the account no longer exists."
+)
 @limiter.limit("16/minute")
 async def get_me(
     request: Request,
     access_token: str | None = Cookie(default=None),
     conn: Connection = Depends(db_connection)
 ):
-    user_id: str = jwt_utils.extract_value_from_token(access_token, "sub")
+    user_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
     user: UserPublicResponse | None = await users_table.get_user_by_id(user_id, conn)
-    if not user: raise ACCOUNT_NOT_FOUND_EXCEPTION
+    
+    if not user: 
+        raise AccountNotFoundException()
+        
     return user
 
 
-@router.get("/pulse", status_code=status.HTTP_200_OK)
+@router.get(
+    "/pulse", 
+    status_code=status.HTTP_200_OK,
+    response_model=SessionPulseResponse,
+    summary="Check session time-to-live",
+    description="Returns the remaining TTL (in seconds) for both access and refresh tokens stored in cookies."
+)
 @limiter.limit("16/minute")
 async def check_session_pulse(
     request: Request,
     access_token: str | None = Cookie(default=None),
     refresh_token: str | None = Cookie(default=None)
-):
-    return {
-        "access_token_ttl": jwt_utils.calculate_token_ttl(access_token),
-        "refresh_token_ttl": jwt_utils.calculate_token_ttl(refresh_token),
-        "status": "active" if jwt_utils.calculate_token_ttl(refresh_token) > 0 else "expired"
-    }
+) -> SessionPulseResponse:
+    access_ttl: int = jwt_utils.calculate_jwt_token_ttl(access_token)
+    refresh_ttl: int = jwt_utils.calculate_jwt_token_ttl(refresh_token)    
+    session_status = "active" if refresh_ttl > 0 else "expired"    
+    return SessionPulseResponse(
+        access_token_ttl=access_ttl,
+        refresh_token_ttl=refresh_ttl,
+        status=session_status
+    )
 
 
-@router.post("/login", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
+@router.post(
+    "/login", 
+    status_code=status.HTTP_200_OK, 
+    response_model=UserPublicResponse,
+    summary="User Login",
+    description="Authenticates a user via email or username. Includes built-in brute-force protection, rotates the session token family, and injects secure HTTP-only cookies."
+)
 @limiter.limit("16/minute")
 async def login(
     request: Request,
@@ -74,34 +98,32 @@ async def login(
     hasher: PasswordHasher = Depends(get_password_hasher),
     refresh_token: str | None = Cookie(default=None)
 ):
-    user_login_data: dict | None = await users_table.get_user_login_data(identifier.identifier, conn)
-    
-    if not user_login_data:
-        await login_attempts_table.insert_failed_login_attempt(
-            identifier.identifier,
-            device_info.ip_address,
-            conn=conn
-        )
-        raise CREDENTIALS_EXCEPTION
-        
+    user_login_data: dict = await users_table.get_user_login_data(identifier.identifier, conn)
+         
+    # 1. Check for brute-force locks BEFORE hashing the password (Prevents CPU DoS)
     if user_login_data['recent_failed_attempts'] >= Constants.MAX_FAILED_LOGIN_ATTEMPTS:
-        raise MAX_LOGIN_ATTEMPT_EXCEPTION
+        raise MaxLoginAttemptException()
     
-    if not hasher.verify_password(identifier.password, user_login_data['password_hash']):
+    # 2. Verify Password
+    if not user_login_data.get('id') or not hasher.verify_password(identifier.password, user_login_data['password_hash']):
         await login_attempts_table.insert_failed_login_attempt(
             identifier.identifier,
             device_info.ip_address,
-            conn=conn
+            conn
         )
-        raise CREDENTIALS_EXCEPTION
+        raise CredentialsException()
     
+    # 3. Parse user response model
     user = UserPublicResponse(**user_login_data)
 
-    old_token_id: str | None = jwt_utils.extract_value_from_token_if_exists(refresh_token, "jti")
+    # 4. Token Rotation
+    old_token_id: str | None = jwt_utils.extract_value_from_jwt_token_if_exists(refresh_token, "jti")
     new_token_id: str = util.generate_uuid_v7()
-    new_access_token: JWtTokenCreate = jwt_utils.create_access_token(user.id, user.role)
+    
+    new_access_token: JWtTokenCreate = jwt_utils.create_jwt_access_token(user.id, user.role)
     new_refresh_token: JWtTokenCreate = jwt_utils.create_jwt_refresh_token(user.id, new_token_id)
 
+    # Must be awaited directly (synchronous) to guarantee the session exists in DB before sending 200 OK
     await tokens_table.process_token_rotation(
         new_token_id,
         user.id,
@@ -111,6 +133,7 @@ async def login(
         old_token_id
     )
     
+    # 5. Apply cookies
     cookies.set_session_cookie(
         response, 
         new_access_token.jwt_token,
@@ -119,18 +142,23 @@ async def login(
         new_refresh_token.expires_at
     )
 
+    # 6. Log the successful attempt in the background
     background_tasks.add_task(
         login_attempts_table.insert_successful_login_attempt,
         identifier=identifier.identifier,
         ip_address=device_info.ip_address,
-        success=True,
-        conn=None
+        conn=None # Background task will acquire its own connection from the pool
     )
     
     return user
 
 
-@router.post("/signup", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/signup", 
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="User Signup",
+    description="Registers a new user account in the system. It safely handles unique constraint validations (such as duplicate emails or usernames) and returns a 409 Conflict if the data is already in use."
+)
 @limiter.limit("8/minute")
 async def create_user(
     request: Request,
@@ -140,7 +168,13 @@ async def create_user(
     await users_table.create_user(payload, conn)
 
 
-@router.post("/refresh", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
+@router.post(
+    "/refresh", 
+    status_code=status.HTTP_200_OK, 
+    response_model=UserPublicResponse,
+    summary="Refresh Session Tokens",
+    description="Validates the user's current refresh token, securely rotates the token family in the database, and sets new HTTP-only cookies for continuous authentication."
+)
 @limiter.limit("32/minute")
 async def refresh(
     request: Request,
@@ -149,19 +183,26 @@ async def refresh(
     conn: Connection = Depends(db_connection),
     refresh_token: str | None = Cookie(default=None)
 ):
-    jwt_data: dict =  jwt_utils.extract_token(refresh_token)
+    # 1. Extract and mathematically validate the token
+    jwt_data: dict = jwt_utils.extract_jwt_token(refresh_token)
     user_id: str | None = jwt_data.get("sub")
     old_token_id: str | None = jwt_data.get("jti")
 
+    # 2. Prevent logical tampering (e.g. using an access token to refresh)
     if jwt_data.get("type") != "refresh" or not user_id or not old_token_id:
-        raise CREDENTIALS_EXCEPTION    
+        raise CredentialsException()    
         
-    user: UserPublicResponse = await users_table.get_user_by_id(user_id, conn)
+    # 3. Ensure the user still exists in the database and is not banned
+    user: UserPublicResponse | None = await users_table.get_user_by_id(user_id, conn)
+    if not user:
+        raise AccountNotFoundException()
 
+    # 4. Generate new tokens
     new_token_id: str = util.generate_uuid_v7()
-    new_access_token: JWtTokenCreate = jwt_utils.create_access_token(user_id, user.role)
+    new_access_token: JWtTokenCreate = jwt_utils.create_jwt_access_token(user_id, user.role)
     new_refresh_token: JWtTokenCreate = jwt_utils.create_jwt_refresh_token(user_id, new_token_id)
 
+    # 5. Process Database Rotation (Synchronous, blocking call for safety)
     await tokens_table.process_token_rotation(
         new_token_id,
         user_id,
@@ -171,6 +212,7 @@ async def refresh(
         old_token_id
     )
     
+    # 6. Apply new secure cookies
     cookies.set_session_cookie(
         response, 
         new_access_token.jwt_token,
@@ -182,7 +224,12 @@ async def refresh(
     return user
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout", 
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="User Logout",
+    description="Logs out the user by immediately clearing local session cookies. If a valid refresh token is provided, it securely revokes the entire token family in the database to prevent session hijacking."
+)
 @limiter.limit("16/minute")
 async def logout(
     request: Request,
@@ -190,28 +237,36 @@ async def logout(
     conn: Connection = Depends(db_connection),
     refresh_token: str | None = Cookie(default=None)
 ):
-    """
-    Logs out the user by clearing local cookies and revoking the active 
-    refresh token family in the database.
-    """
     cookies.unset_session_cookie(response)
-    token: dict = jwt_utils.extract_token(refresh_token)
-    user_id: str = token.get("sub")
-    token_id: str = token.get("jti")
-    if not user_id or not token_id: return
-    await tokens_table.revoke_token_family(token_id, user_id, conn)
+    try:
+        token: dict = jwt_utils.extract_jwt_token(refresh_token)
+        user_id: str | None = token.get("sub")
+        token_id: str | None = token.get("jti")
+                
+        if user_id and token_id:
+            await tokens_table.revoke_token_family(token_id, user_id, conn)
+            
+    except CredentialsException:
+        pass
 
 
-@router.delete("/sessions/revoke-all", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/sessions/revoke-all", 
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Logout of all devices",
+    description="Logs the user out globally. It clears the local session cookies immediately and safely revokes every active refresh token family associated with this user's account in the database."
+)
 @limiter.limit("16/minute")
-async def revoke_all_other_sessions(
+async def revoke_all_sessions(
     request: Request,
     response: Response,
     conn: Connection = Depends(db_connection),
     access_token: str | None = Cookie(default=None)
 ):
-    cookies.unset_session_cookie(response)
-    user_id: str = jwt_utils.extract_value_from_token(access_token, "sub")
-    if not user_id: raise FORBIDDEN_EXCEPTION
-    await tokens_table.revoke_all_user_sessions(user_id, conn)
+    cookies.unset_session_cookie(response)    
+    try:
+        user_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
+        await tokens_table.revoke_all_user_sessions(user_id, conn)    
+    except CredentialsException:
+        pass
     

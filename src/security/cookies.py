@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 from fastapi import Cookie, Response
-from src.exceptions import CREDENTIALS_EXCEPTION
+from src.exceptions import CredentialsException
 from src.constants import Constants
 from src.util import seconds_until
 from src.security import jwt_utils
@@ -15,15 +15,13 @@ COOKIE_SECURITY_SETTINGS = {
 }
 
 
-async def require_role(access_token: Optional[str] = Cookie(default=None), *roles: str) -> None:
+def require_role(access_token: Optional[str] = Cookie(default=None), *roles: str) -> None:
     """
     Base dependency to verify if the current user has at least one of the required roles.
     """
-    payload: dict = jwt_utils.extract_token(access_token)
-    
-    role: str | None = payload.get('role')
-    if not role or role not in roles:
-        raise CREDENTIALS_EXCEPTION
+    role: str = jwt_utils.extract_value_from_jwt_token(access_token, 'role')
+
+    if not role or role not in roles: raise CredentialsException()
 
 
 def require_admin_access(access_token: Optional[str] = Cookie(default=None)) -> None:

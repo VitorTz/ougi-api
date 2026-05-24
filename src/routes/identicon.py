@@ -12,7 +12,6 @@ router = APIRouter(
 limiter = get_limiter()
 
 
-
 @router.get("/{username}/avatar.svg", response_class=Response)
 @limiter.limit("2048/minute")
 async def get_user_identicon(

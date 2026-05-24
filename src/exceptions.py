@@ -1,39 +1,52 @@
 from fastapi.exceptions import HTTPException
-from typing import Any, Optional, Dict
+from typing import Any
 from fastapi import status
-import traceback
+from src.util import format_stacktrace
 
 
-
-CREDENTIALS_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-)
-
-
-FORBIDDEN_EXCEPTION = HTTPException(
-    status_code=status.HTTP_403_FORBIDDEN,
-    detail="You do not have permission to perform this action.",
-)
-
-
-ACCOUNT_NOT_FOUND_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED, 
-    detail='User account no longer exists or is invalid.'
-)
+class CredentialsException(HTTPException):
+    def __init__(self, detail: str = "Could not validate credentials", headers: dict[str, str] | None = None):
+        _headers = {"WWW-Authenticate": "Bearer"}
+        if headers:
+            _headers.update(headers)
+            
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers=_headers
+        )
 
 
-MAX_LOGIN_ATTEMPT_EXCEPTION = HTTPException(
-    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-    detail="Too many failed login attempts. Please try again in 15 minutes."
-)
+class ForbiddenException(HTTPException):
+    def __init__(self, detail: str = "You do not have permission to perform this action."):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail
+        )
 
 
-EMPTY_UPDATE_EXCEPTION = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST, 
-    detail="No valid fields provided for update."
-)
+class AccountNotFoundException(HTTPException):
+    def __init__(self, detail: str = "User account no longer exists or is invalid."):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail
+        )
+
+
+class MaxLoginAttemptException(HTTPException):
+    def __init__(self, detail: str = "Too many failed login attempts. Please try again in 15 minutes."):
+        super().__init__(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=detail
+        )
+
+
+class EmptyUpdateException(HTTPException):
+    def __init__(self, detail: str = "No valid fields provided for update."):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
 
 class ConflictException(HTTPException):
 
@@ -84,13 +97,11 @@ class AccountSuspendedException(HTTPException):
         )
 
 
-class DuplicateRecordError(HTTPException):
+class DuplicateRecordError(Exception):
     
     def __init__(self, detail: str):
-        super().__init__(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=detail
-        )
+        self.detail = detail
+        super().__init__(self.detail)
 
 
 class DatabaseException(Exception):
@@ -102,10 +113,10 @@ class DatabaseException(Exception):
         self, 
         client_message: str, 
         original_error: Exception,
-        query: Optional[str] = None,
-        params: Optional[Any] = None,
-        additional_context: Optional[Dict[str, Any]] = None,
-        user_id: Optional[str] = None
+        query: str | None = None,
+        params: Any = None,
+        additional_context: dict | None = None,
+        user_id: str | None = None
     ):
         super().__init__(str(original_error))
         self.client_message = client_message
@@ -113,35 +124,8 @@ class DatabaseException(Exception):
         self.error_type = type(original_error).__name__
         self.query = query
         self.params = params
+        self.query_parameters = str(params) if params else None
         self.context = additional_context or {}
         self.user_id = user_id
-        self.traceback_str = "".join(
-            traceback.format_exception(
-                type(original_error), 
-                original_error, 
-                original_error.__traceback__
-            )
-        )
-
-    def get_client_response(self) -> dict:
-        """
-        Returns a dictionary safe to be serialized as JSON and sent to the frontend.
-        """
-        return {
-            "error": self.client_message
-        }
-
-    def get_log_payload(self) -> dict:
-        """
-        Returns a comprehensive dictionary to be inserted into your error logs table.
-        """
-        return {
-            "error_type": self.error_type,
-            "error_message": str(self.original_error),
-            "failed_query": self.query,
-            "query_parameters": str(self.params) if self.params else None,
-            "user_id": self.user_id,
-            "execution_context": self.context,
-            "stack_trace": self.traceback_str
-        }
-    
+        self.traceback_str = format_stacktrace(original_error)
+        self.error_message = str(self.original_error)

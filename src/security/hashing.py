@@ -1,5 +1,5 @@
-from typing import Protocol
 from passlib.context import CryptContext
+from typing import Protocol
 
 
 class PasswordHasher(Protocol):
@@ -14,10 +14,7 @@ class PasswordHasher(Protocol):
 class PasslibArgon2Hasher:
 
     def __init__(self) -> None:
-        self.pwd_context = CryptContext(
-            schemes=["argon2"],
-            deprecated="auto"
-        )
+        self.pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
     def get_password_hash(self, password: str) -> str | None:
         if not password: return None

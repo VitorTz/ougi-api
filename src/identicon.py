@@ -48,9 +48,7 @@ _CORNER_SHAPES = (
 )
 
 _BG_ANGLES = ((0, 0, 900, 0), (0, 0, 0, 300), (0, 0, 900, 300), (900, 0, 0, 300))
-_PALETTE_IDX = (0.0, 1.0)  # stop offsets for gradients
 _ACCENT_OFFSETS = (180, 120, 210, 60)
-_SHAPE_TYPES = ('circle', 'ring', 'line', 'triangle')
 
 
 def _hsl_to_hex(h: float, s: float, l: float) -> str:

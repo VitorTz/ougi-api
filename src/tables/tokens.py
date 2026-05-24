@@ -139,8 +139,8 @@ async def revoke_token_family(token_id: str, user_id: str, conn: Connection) -> 
 
 async def revoke_all_user_sessions(user_id: str, conn: Connection) -> None:
     """
-    Revoga TODAS as sessões ativas do usuário em TODOS os dispositivos.
-    Usado no logout completo (logout de todos os dispositivos).
+    Revokes ALL active sessions for the user across ALL devices.
+    Used for a complete global logout.
     """
     query = """
         UPDATE 
@@ -148,7 +148,7 @@ async def revoke_all_user_sessions(user_id: str, conn: Connection) -> None:
         SET 
             revoked = TRUE
         WHERE 
-            user_id = $1
+            user_id = $1::uuid
             AND revoked = FALSE;
     """    
     try:
@@ -158,12 +158,10 @@ async def revoke_all_user_sessions(user_id: str, conn: Connection) -> None:
             client_message="An unexpected error occurred while logging out of all devices. Please try again.",
             original_error=e,
             query=query,
-            params={
-                "user_id": user_id,
-            },
+            params={"user_id": user_id},
             additional_context={
                 "action": "revoke_all_user_sessions",
-                "description": "Failed to revoke all user sessions.",
+                "description": "Failed to globally revoke all user sessions.",
             },
             user_id=str(user_id),
         )

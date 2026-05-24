@@ -4,7 +4,7 @@ from src import db
 from src.tables import logs as logs_table
 from src.exceptions import DatabaseException
 from src.schemas.pagination import Pagination
-import traceback
+from src import util
 import json
 
 
@@ -48,13 +48,7 @@ async def insert_audit_log(
         try:
             await conn.execute(query, *params)
         except Exception as e:
-            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            log_user_id = None
-            if actor_id:
-                try:
-                    log_user_id = UUID(str(actor_id))
-                except ValueError:
-                    pass            
+            log_user_id = str(actor_id) if util.is_uuid(actor_id) else None
             await logs_table.insert_log(
                 error_type=type(e).__name__,
                 error_message=str(e),
@@ -74,7 +68,7 @@ async def insert_audit_log(
                     "action": "insert_audit_log",
                     "description": "Failed to insert audit log. Reusing connection for system log."
                 },
-                stack_trace=tb_str,
+                stack_trace=util.format_stacktrace(e),
                 conn=conn
             )
     

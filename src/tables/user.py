@@ -46,13 +46,14 @@ async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicR
         """,
         user_id
     )
-    return UserPublicResponse(row) if row else None
+    return UserPublicResponse(**row) if row else None
 
 
-async def get_user_login_data(identifier: str, conn: Connection) -> Optional[dict]:
+async def get_user_login_data(identifier: str, ip_address: str, conn: Connection) -> dict:
     """
-    Retrieves user sensitive data for login and counts recent failed login attempts 
-    using a Common Table Expression (CTE) to perform both actions in a single query.
+    Recupera dados sensíveis do usuário e conta tentativas falhas baseadas no IP.
+    Sempre retorna um dicionário contendo 'recent_failed_attempts', mesmo que o usuário não exista,
+    prevenindo ataques de enumeração e Account Lockout DoS.
     """
     query = f"""
         WITH updated_user AS (
@@ -66,33 +67,36 @@ async def get_user_login_data(identifier: str, conn: Connection) -> Optional[dic
                 AND u.is_banned = FALSE
             RETURNING
                 {USER_SENSITIVE_INFO_COLUMNS}
+        ),
+        attempt_count AS (
+            SELECT 
+                COUNT(id) AS recent_failed_attempts
+            FROM 
+                login_attempts
+            WHERE 
+                ip_address = $2::inet
+                AND success = FALSE
+                AND created_at >= NOW() - make_interval(mins => 15)
         )
         SELECT 
             up.*,
-            (
-                SELECT 
-                    COUNT(id)
-                FROM 
-                    login_attempts la
-                WHERE 
-                    la.identifier = TRIM($1)
-                    AND la.success = FALSE
-                    AND la.created_at >= NOW() - make_interval(mins => 15)
-            ) AS recent_failed_attempts
+            ac.recent_failed_attempts
         FROM 
-            updated_user up;
+            attempt_count ac
+        LEFT JOIN 
+            updated_user up ON TRUE;
     """
     
     try:
-        row = await conn.fetchrow(query, identifier)
-        return dict(row) if row else None
+        row = await conn.fetchrow(query, identifier, ip_address)        
+        return dict(row)
         
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while verifying your credentials.",
             original_error=e,
             query=query,
-            params=[identifier],
+            params=[identifier, ip_address],
             additional_context={
                 "action": "get_user_login_data", 
                 "description": "Failed to fetch user and login attempts."
@@ -174,13 +178,17 @@ async def update_role_user(user_id: str, role: UserRole, conn: Connection) -> bo
 
 
 async def ban_user(user_id: str, conn: Connection) -> bool:
+    """
+    Bans a user by setting their is_banned flag to TRUE.
+    Returns True if the user was found and updated, False otherwise.
+    """
     query = """
         UPDATE 
             users 
         SET
             is_banned = TRUE
         WHERE
-            id = $1
+            id = $1::uuid
         RETURNING 
             id;
     """
@@ -189,7 +197,7 @@ async def ban_user(user_id: str, conn: Connection) -> bool:
         return row is not None
     except Exception as e:
         raise DatabaseException(
-            client_message="An unexpected error occurred while banning user.",
+            client_message="An unexpected error occurred while banning the user.",
             original_error=e,
             query=query,
             params=[user_id],

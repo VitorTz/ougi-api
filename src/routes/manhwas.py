@@ -16,7 +16,12 @@ router = APIRouter(
 limiter = get_limiter()
 
 
-@router.get("/", response_model=ManhwaCatalogResponse)
+@router.get(
+    "/", 
+    response_model=ManhwaCatalogResponse,
+    summary="Get Manhwa Details",
+    description="Retrieves the complete catalog information of a specific manhwa. The manhwa can be identified either by its unique UUID or its SEO-friendly text slug. If the manhwa does not exist, a 404 Not Found error is returned."
+)
 @limiter.limit("32/minute")
 async def get_manhwa(
     request: Request,
@@ -28,11 +33,9 @@ async def get_manhwa(
     ),
     conn: Connection = Depends(db_connection),
 ):    
-    """
-    Retrieves the complete catalog information of a specific manhwa by its ID or slug.
-    """
     manhwa: ManhwaCatalogResponse | None = await manhwas_table.get_manhwa(identifier, conn)
-    if not manhwa: raise ResourceNotFoundException("Manhwa")
+    if not manhwa: 
+        raise ResourceNotFoundException("Manhwa")
     return manhwa
 
 

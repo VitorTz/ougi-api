@@ -4,22 +4,28 @@ from fastapi import (
     Request, 
     Path, 
     Depends,
-    Query    
+    Query,
+    BackgroundTasks,
+    Cookie
 )
-from src.schemas.user import UserPublicResponse
+from src.schemas.user import UserPublicResponse, UserRole
 from src.dependencies import get_limiter
 from src.schemas.pagination import Pagination
+from src.exceptions import ResourceNotFoundException
 from src.tables import user as users_table
+from src.tables import audit_log as audit_log_table
 from asyncpg import Connection
 from typing import Optional
-from src.db import db_connection
+from src.security import jwt_utils
+from src import util
+from src import db
 
 
-router = APIRouter()
+router = APIRouter(prefix="/users")
 limiter = get_limiter()
 
 
-@router.get("/users", status_code=status.HTTP_200_OK, response_model=Pagination[UserPublicResponse])
+@router.get("", status_code=status.HTTP_200_OK, response_model=Pagination[UserPublicResponse])
 @limiter.limit("32/minute")
 async def list_users(
     request: Request,
@@ -51,7 +57,7 @@ async def list_users(
         title="Ban Status",
         description="Filter users by their current ban status (true for banned, false for active)."
     ),
-    conn: Connection = Depends(db_connection)
+    conn: Connection = Depends(db.db_connection)
 ):
     """
     Retrieves a paginated list of registered users.
@@ -67,15 +73,55 @@ async def list_users(
     )
 
 
-@router.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def delete_user(
     request: Request,
     user_id: str = Path(
         ...,
         title="User ID",
-        description="The unique UUID of the user whose role is being updated."
+        description="The user unique UUID"
     ),
-    conn: Connection = Depends(db_connection)
+    conn: Connection = Depends(db.db_connection)
 ):
     await users_table.delete_user(user_id, conn)
+
+
+@router.post("/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("32/minute")
+async def update_user_role(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user_id: str = Path(
+        ...,
+        title="User ID",
+        description="The unique UUID of the user whose role is being updated."
+    ),
+    role: UserRole = Query(
+        ...,
+        title="New User Role",
+        description="The new role to assign to the user (e.g., admin, moderator, user)."
+    ),
+    access_token: Optional[str] = Cookie(default=None),
+    conn: Connection = Depends(db.db_connection)
+):
+    """
+    Updates the role of a specific user. 
+    Triggers a background task to record the action in the audit logs.
+    """
+    id_actor: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
+    
+    success: bool = await users_table.update_role_user(user_id, role, conn)
+    
+    if not success:
+        raise ResourceNotFoundException("User")
+    
+    # Audit logging in background
+    background_tasks.add_task(
+        audit_log_table.insert_audit_log,
+        action="update_user_role",
+        table_name="users",
+        record_id=str(user_id),
+        actor_id=id_actor,
+        ip_address=util.extract_client_ip(request)
+    )

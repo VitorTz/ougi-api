@@ -32,9 +32,9 @@ class ChapterUpdate(BaseModel):
 class ChapterResponse(ChapterBase):
 
     id: UUID
-    manhwa_id: UUID
+    cover_path: Optional[str]
+    num: Decimal
+    title: Optional[str]
     views: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

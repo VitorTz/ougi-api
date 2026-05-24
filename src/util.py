@@ -3,10 +3,9 @@ from src.constants import Constants
 from src.schemas.device_info import DeviceInfo
 from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
-from typing import Any
 from uuid6 import uuid7
+import traceback
 import uuid
-import math
 import unicodedata
 import re
 
@@ -50,7 +49,11 @@ def is_impostor_name(username: str) -> bool:
     return False
 
 
-def get_real_client_ip(request: Request) -> str:
+def format_stacktrace(exc: Exception) -> str:
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+def extract_client_ip(request: Request) -> str:
     """
     Extracts the real IP address of the user from the FastAPI Request object.
     It checks common proxy and CDN headers before falling back to the 
@@ -82,10 +85,14 @@ def get_real_client_ip(request: Request) -> str:
     return "Unknown"
 
 
+def extract_user_agent(request: Request) -> str:
+    return request.headers.get("user-agent", "Unknown")
+
+
 def get_device_info(request: Request) -> DeviceInfo:
     return DeviceInfo(
         device=request.headers.get("user-agent", "Unknown"),
-        ip_address=get_real_client_ip(request)
+        ip_address=extract_client_ip(request)
     )    
 
 
@@ -130,27 +137,6 @@ def generate_slug(title: str) -> str:
     return slug.strip('-')
 
 
-def get_pagination_metadata(total_items: int, limit: int, offset: int) -> dict[str, Any]:
-    """
-    Generates standardized pagination metadata to attach to your API responses.
-    This makes it infinitely easier for the frontend to render 'Next/Prev' buttons.
-    """
-    safe_limit = limit if limit > 0 else 1 
-    
-    current_page = math.floor(offset / safe_limit) + 1
-    total_pages = math.ceil(total_items / safe_limit)
-    
-    return {
-        "total_items": total_items,
-        "total_pages": total_pages,
-        "current_page": current_page,
-        "has_next": current_page < total_pages,
-        "has_previous": current_page > 1,
-        "limit": limit,
-        "offset": offset
-    }
-
-
 def redact_sensitive_data(payload: dict) -> dict:
     """
     Recursively scans a dictionary and masks sensitive fields (like passwords or tokens).
@@ -189,3 +175,7 @@ def is_uuid(v: str):
 
 def generate_uuid_v7() -> str:
     return str(uuid7())
+
+
+def extract_request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", "unknown")

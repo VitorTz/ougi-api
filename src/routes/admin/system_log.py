@@ -17,11 +17,11 @@ from uuid import UUID
 from src.db import db_connection
 
 
-router = APIRouter()
+router = APIRouter(prefix="/logs")
 limiter = get_limiter()
 
 
-@router.get("/logs", status_code=status.HTTP_200_OK, response_model=Pagination[SystemLogResponse])
+@router.get("", status_code=status.HTTP_200_OK, response_model=Pagination[SystemLogResponse])
 @limiter.limit("32/minute")
 async def list_logs(
     request: Request,
@@ -69,7 +69,7 @@ async def list_logs(
     )
     
 
-@router.get("/logs/{log_id}", response_model=SystemLogResponse)
+@router.get("/{log_id}", response_model=SystemLogResponse)
 @limiter.limit("16/minute")
 async def get_log_details(
     request: Request,
@@ -88,7 +88,29 @@ async def get_log_details(
     return log
 
 
-@router.delete("/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_200_OK)
+@limiter.limit("16/minute")
+async def clear_old_logs(
+    request: Request,
+    days_to_keep: int = Query(
+        default=30, 
+        ge=0, 
+        description="Delete logs older than this many days. Use 0 to delete all logs."
+    ),
+    conn: Connection = Depends(db_connection)
+) -> dict:
+    """
+    Deletes old system logs and returns the amount of records that were deleted.
+    """
+    deleted_count = await logs_table.delete_logs(days_to_keep, conn)    
+    return {
+        "message": "Logs cleaned up successfully.",
+        "deleted_count": deleted_count,
+        "days_kept": days_to_keep
+    }
+
+
+@router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("16/minute")
 async def delete_log(
     request: Request, 
@@ -110,24 +132,3 @@ async def delete_log(
     if not deleted:
         raise ResourceNotFoundException("Log entry")
     
-
-@router.delete("/logs", status_code=status.HTTP_200_OK)
-@limiter.limit("16/minute")
-async def clear_old_logs(
-    request: Request,
-    days_to_keep: int = Query(
-        default=30, 
-        ge=0, 
-        description="Delete logs older than this many days. Use 0 to delete all logs."
-    ),
-    conn: Connection = Depends(db_connection)
-) -> dict:
-    """
-    Deletes old system logs and returns the amount of records that were deleted.
-    """
-    deleted_count = await logs_table.delete_logs(days_to_keep, conn)    
-    return {
-        "message": "Logs cleaned up successfully.",
-        "deleted_count": deleted_count,
-        "days_kept": days_to_keep
-    }

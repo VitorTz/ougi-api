@@ -16,7 +16,7 @@ router = APIRouter(prefix="/auth")
 limiter = get_limiter()
 
 
-@router.delete("/", status_code=status.HTTP_200_OK)
+@router.delete("/login-attempts", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_old_login_attempts(
     request: Request,
@@ -43,7 +43,7 @@ async def clear_old_login_attempts(
     }
 
 
-@router.delete("/", status_code=status.HTTP_200_OK)
+@router.delete("/refresh-tokens", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_expired_tokens(
     request: Request,

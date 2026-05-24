@@ -27,10 +27,6 @@ class RefreshTokenResponse(BaseModel):
 
 class ActiveSessionResponse(BaseModel):
     
-    """
-    Public-facing model for a user's session. 
-    Hides internal token hashes and DB primary keys.
-    """
     session_id: UUID
     device_info: Optional[str]
     ip_address: Optional[str]

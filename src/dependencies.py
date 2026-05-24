@@ -1,10 +1,10 @@
 from src.security.hashing import PasswordHasher, PasslibArgon2Hasher
 from slowapi import Limiter
-from src.util import get_real_client_ip
+from src.util import extract_client_ip
 
 
 _argon2_hasher = PasslibArgon2Hasher()
-_limiter = Limiter(key_func=get_real_client_ip)
+_limiter = Limiter(key_func=extract_client_ip)
 
 
 def get_password_hasher() -> PasswordHasher:

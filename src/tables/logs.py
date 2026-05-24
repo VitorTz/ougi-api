@@ -7,11 +7,68 @@ from src import db
 import json
 
 
+LOG_INSERT_QUERY = """
+    INSERT INTO system_logs (
+        user_id, 
+        ip_address, 
+        request_id,
+        user_agent, 
+        request_method, 
+        request_path,
+        error_level, 
+        error_type, 
+        error_message, 
+        failed_query, 
+        query_parameters, 
+        execution_context, 
+        stack_trace
+    ) VALUES (
+        $1, 
+        $2::INET, 
+        $3, 
+        $4, 
+        $5, 
+        $6, 
+        $7, 
+        $8, 
+        $9, 
+        $10,
+        $11::JSONB, 
+        $11::JSONB,
+        $12
+    );
+"""
+
+
+LOG_GET_QUERY = """
+    SELECT 
+        id, 
+        user_id, 
+        request_id,
+        ip_address::TEXT as ip_address, 
+        user_agent, 
+        request_method, 
+        request_path, 
+        error_level, 
+        error_type, 
+        error_message, 
+        failed_query, 
+        query_parameters::TEXT as query_parameters,
+        execution_context::TEXT as execution_context,
+        stack_trace, 
+        created_at
+    FROM 
+        system_logs
+    WHERE 
+        id = $1;
+""" 
+
+
 async def insert_log(
     error_type: str,
     error_message: str,
     error_level: str = "ERROR",
-    user_id: str | None = None,
+    user_id: str | UUID | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
     request_method: str | None = None,
@@ -20,64 +77,31 @@ async def insert_log(
     query_parameters: dict | None = None,
     execution_context: dict | None = None,
     stack_trace: str | None = None,
+    request_id: str | None = None,
     conn: Connection | None = None
 ) -> str | None:
     params_json = json.dumps(query_parameters) if query_parameters else None
     context_json = json.dumps(execution_context) if execution_context else None
-
-    query = """
-        INSERT INTO system_logs (
-            user_id, 
-            ip_address, 
-            user_agent, 
-            request_method, 
-            request_path,
-            error_level, 
-            error_type, 
-            error_message, 
-            failed_query, 
-            query_parameters, 
-            execution_context, 
-            stack_trace
-        ) VALUES (
-            $1, $2::INET, $3, $4, $5, 
-            $6, $7, $8, $9, 
-            $10::JSONB, $11::JSONB, $12
-        );
-    """
-    if conn is None:
-        async with db.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                user_id,
-                ip_address,
-                user_agent,
-                request_method,
-                request_path,
-                error_level,
-                error_type,
-                error_message,
-                failed_query,
-                params_json,
-                context_json,
-                stack_trace
-            )
-    else:
-        await conn.execute(
-                query,
-                user_id,
-                ip_address,
-                user_agent,
-                request_method,
-                request_path,
-                error_level,
-                error_type,
-                error_message,
-                failed_query,
-                params_json,
-                context_json,
-                stack_trace
-            )
+    params = (
+        str(user_id),
+        request_id,
+        ip_address,
+        user_agent,
+        request_method,
+        request_path,
+        error_level,
+        error_type,
+        error_message,
+        failed_query,
+        params_json,
+        context_json,
+        stack_trace
+    )
+    if conn:
+        return await conn.execute(LOG_INSERT_QUERY, *params)
+    
+    async with db.pool.acquire() as conn:
+        await conn.execute(LOG_INSERT_QUERY, *params)
 
 
 async def get_logs(
@@ -165,28 +189,7 @@ async def get_log_by_id(log_id: UUID, conn: Connection) -> SystemLogResponse | N
     """
     Retrieves a specific log entry by its UUID using the global connection pool.
     """
-    query = """
-        SELECT 
-            id, 
-            user_id, 
-            ip_address::TEXT as ip_address, 
-            user_agent, 
-            request_method, 
-            request_path, 
-            error_level, 
-            error_type, 
-            error_message, 
-            failed_query, 
-            query_parameters, 
-            execution_context, 
-            stack_trace, 
-            created_at
-        FROM 
-            system_logs
-        WHERE 
-            id = $1;
-    """    
-    row = await conn.fetchrow(query, log_id)
+    row = await conn.fetchrow(LOG_GET_QUERY, log_id)
     if row: return SystemLogResponse(**row)
 
 
