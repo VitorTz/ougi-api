@@ -63,20 +63,7 @@ async def update_chapter_cover(
     await file.seek(0)
     file_data = await file.read()
     original_image_size_bytes: int = len(file_data)
-
-    # Validate image size
-    if original_image_size_bytes > Constants.MAX_CHAPTER_COVER_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_PAYLOAD_TOO_LARGE,
-            detail=f"File size exceeds {Constants.MAX_CHAPTER_COVER_SIZE / 1024 / 1024:.0f}MB limit"
-        )
-    
-    if original_image_size_bytes == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is empty"
-        )
-    
+    util.validate_image_max_size(original_image_size_bytes)
 
     chapter: ChapterResponse | None = await chapter_table.get_chapter_by_id(chapter_id, conn)
     if not chapter: raise ResourceNotFoundException(f"Chapter {chapter_id}")
@@ -96,7 +83,7 @@ async def update_chapter_cover(
         
         await chapter_table.update_chapter_cover(chapter_id, key, conn)
         
-        # Audit logging        
+        # Audit logging
         background_tasks.add_task(
             audit_log_table.insert_audit_log,
             action="update_chapter_cover",
@@ -140,7 +127,7 @@ async def update_chapter_cover(
                 "file_size": original_image_size_bytes
             }
         )
-
+    
 
 @router.patch(
     "/", 
@@ -153,7 +140,7 @@ async def update_chapter_cover(
 async def update_chapter(
     request: Request,
     background_tasks: BackgroundTasks,
-    payload: ChapterUpdate = Depends(),
+    payload: ChapterUpdate,
     access_token: Optional[str] = Cookie(default=None),
     conn: Connection = Depends(db_connection)
 ):    

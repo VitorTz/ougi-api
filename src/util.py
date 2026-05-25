@@ -1,20 +1,22 @@
 from fastapi import Request, status, UploadFile
 from fastapi.exceptions import HTTPException
-from PIL import Image
 from src.constants import Constants
+from colorthief import ColorThief
 from src.schemas.device_info import DeviceInfo
+from src.schemas.manhwas import ManhwaCoverBytes
 from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
 from uuid6 import uuid7
+from PIL import Image
 import unicodedata
 import traceback
 import io
 import uuid
 import re
 
+
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
-
 
 
 def seconds_until(target: datetime) -> int:
@@ -119,6 +121,20 @@ def validate_file_content(file: UploadFile) -> bool:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_MIME_TYPES)}"
         )
+    
+
+def validate_image_max_size(num_bytes: int) -> None:
+    if num_bytes > Constants.MAX_CHAPTER_COVER_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_PAYLOAD_TOO_LARGE,
+            detail=f"File size exceeds {Constants.MAX_CHAPTER_COVER_SIZE / 1024 / 1024:.0f}MB limit"
+        )
+    
+    if num_bytes == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is empty"
+        )
 
 
 def extract_image_extension(header_bytes: bytes) -> str:
@@ -146,6 +162,9 @@ def extract_image_extension(header_bytes: bytes) -> str:
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"Invalid file extension. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
     )
+
+def validate_image_extension(header_bytes: bytes) -> None:
+    extract_image_extension(header_bytes)
 
 
 def generate_slug(title: str) -> str:
@@ -193,10 +212,8 @@ async def convert_to_webp(file_data: bytes, max_width: int = 512) -> tuple[bytes
         
         output = io.BytesIO()
         img.save(output, format="WEBP", quality=85, method=6)
-        output.seek(0)
-        
+        output.seek(0)        
         return output.getvalue(), final_size
-    
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -220,3 +237,60 @@ def format_bytes(num_bytes: int) -> str:
         return f"{int(value)} {unities[index]}"
     else:
         return f"{value:.1f} {unities[index]}"
+    
+
+def get_dominant_hex_color(file: bytes, quality: int = 10) -> str:
+    data = io.BytesIO(file)
+    try:
+        color_thief = ColorThief(data)
+        dominant_rgb = color_thief.get_color(quality=quality)
+        hex_color = "#{:02x}{:02x}{:02x}".format(*dominant_rgb).upper()
+        return hex_color
+    except Exception as e:
+        print(f"Failed to extract color: {e}")
+        return "#1A1A1A"
+    
+
+def create_manhwa_cover(image_bytes: bytes, quality: int = 85) -> ManhwaCoverBytes:
+    try:
+        original_image = Image.open(io.BytesIO(image_bytes))        
+        if original_image.mode in ("RGBA", "LA", "P"):
+            pass
+        elif original_image.mode != "RGB":
+            original_image = original_image.convert("RGB")
+        
+        original_width, original_height = original_image.size
+        result = {}
+        
+        # Processa cada tamanho alvo
+        for size_name, target_width in sorted(
+            Constants.MANHWA_COVER_TARGET_WIDTHS.items(),
+            key=lambda x: x[1],
+            reverse=True
+        ):
+            aspect_ratio = original_height / original_width
+            target_height = int(target_width * aspect_ratio)
+            resized_image = original_image.resize(
+                (target_width, target_height),
+                Image.Resampling.LANCZOS
+            )
+            
+            # Converte para WebP
+            webp_bytes = io.BytesIO()
+            resized_image.save(
+                webp_bytes,
+                format="WebP",
+                quality=quality,
+                method=6
+            )
+            webp_bytes.seek(0)
+            result[size_name] = webp_bytes
+        return ManhwaCoverBytes(
+            big=result['big'],
+            medium=result['medium'],
+            small=result['small']
+        )
+    except Image.UnidentifiedImageError:
+        raise ValueError("Não foi possível identificar o formato da imagem")
+    except Exception as e:
+        raise ValueError(f"Erro ao processar a imagem: {str(e)}")

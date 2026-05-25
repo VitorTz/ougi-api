@@ -41,7 +41,9 @@ class ManhwaCatalogResponse(BaseModel):
     @field_validator('cover_big', 'cover_medium', 'cover_small')
     @classmethod
     def prepend_cloudflare_prefix(cls, v: Optional[str]) -> Optional[str]:
-        return Constants.CLOUDFLARE_PREFIX + v if v else v
+        if v and not v.startswith(Constants.CLOUDFLARE_PREFIX):
+            return Constants.CLOUDFLARE_PREFIX + v
+        return v
 
 
 class ManhwaSearchResponse(BaseModel):
@@ -70,4 +72,21 @@ class ManhwaSearchResponse(BaseModel):
     @field_validator('cover_medium', 'cover_small')
     @classmethod
     def prepend_cloudflare_prefix(cls, v: Optional[str]) -> Optional[str]:
-        return Constants.CLOUDFLARE_PREFIX + v if v else v
+        if v and not v.startswith(Constants.CLOUDFLARE_PREFIX):
+            return Constants.CLOUDFLARE_PREFIX + v
+        return v
+    
+
+class ManhwaCoverBytes(BaseModel):
+
+    big: bytes
+    medium: bytes
+    small: bytes    
+
+
+class ManhwaCoverUpdate(BaseModel):
+
+    big: str
+    medium: str
+    small: str
+    hex_color: str

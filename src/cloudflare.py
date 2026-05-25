@@ -1,5 +1,5 @@
 from botocore.config import Config
-from typing import Optional, List
+from typing import List
 from dotenv import load_dotenv
 from uuid import UUID
 import aioboto3
@@ -55,7 +55,6 @@ class CloudflareR2Bucket:
         bucket_name: str = os.getenv("CLOUDFLARE_BUCKET_NAME"),
         region: str = "auto",
     ):
-        """Thread-safe async singleton getter using double-checked locking"""
         if not cls._instance:
             async with cls._lock:
                 if not cls._instance:
@@ -79,55 +78,30 @@ class CloudflareR2Bucket:
             config=self.config,
         )
 
-    async def upload_file(
-        self,
-        key: str,
-        file_path: str,
-        content_type: Optional[str] = None
-    ) -> str:
-        """
-        Upload a file from disk to R2.
-        
-        Args:
-            key: S3 key/path in bucket
-            file_path: Local file path
-            content_type: MIME type (e.g., 'image/webp')
-            
-        Returns:
-            Full URL to the uploaded file
-        """
-        extra = {"ContentType": content_type} if content_type else {}
-        
-        async with await self._get_client() as client:
-            with open(file_path, "rb") as f:
-                await client.upload_fileobj(f, self.bucket_name, key, ExtraArgs=extra)
-        
-        return self.prefix + key
-
     async def upload_bytes(
         self,
         key: str,
         data: io.BytesIO,
-        content_type: Optional[str] = None
+        content_type: str | None = None,
+        prepend_prefix: bool | None = True
     ) -> str:
-        """
-        Upload bytes directly to R2.
-        
-        Args:
-            key: S3 key/path in bucket
-            data: BytesIO object containing file data
-            content_type: MIME type
-            
-        Returns:
-            Full URL to the uploaded file
-        """
         extra = {"ContentType": content_type} if content_type else {}
         
         async with await self._get_client() as client:
             await client.upload_fileobj(data, self.bucket_name, key, ExtraArgs=extra)
-        
-        return self.prefix + key
-
+        return self.prefix + key if prepend_prefix else key
+    
+    async def upload_multiple_bytes(
+        self,
+        files: list[tuple[str, bytes]],
+        content_type: str | None = "image/webp"
+    ) -> list[str]:
+        tasks = [
+            self.upload_bytes(key, data, content_type, prepend_prefix=False)
+            for key, data in files
+        ]
+        return await asyncio.gather(*tasks)
+    
     async def get_url(self, key: str, expires_in: int = 3600) -> str:
         """Generate a presigned URL for direct access"""
         async with await self._get_client() as client:
@@ -155,15 +129,6 @@ class CloudflareR2Bucket:
             await client.delete_object(Bucket=self.bucket_name, Key=key)
 
     async def delete_by_prefix(self, prefix: str) -> int:
-        """
-        Delete all files with a given prefix.
-        
-        Args:
-            prefix: S3 prefix to match
-            
-        Returns:
-            Number of files deleted
-        """
         deleted_count = 0
         
         async with await self._get_client() as client:
@@ -200,30 +165,14 @@ class CloudflareR2Bucket:
         
         return deleted_count
 
-    async def upload_multiple(
-        self,
-        files: List[tuple[str, str]],
-        content_type: Optional[str] = None
-    ) -> List[str]:
-        """
-        Upload multiple files concurrently.
-        
-        Args:
-            files: List of (key, file_path) tuples
-            content_type: MIME type for all files
-            
-        Returns:
-            List of URLs for uploaded files
-        """
-        tasks = [
-            self.upload_file(key, file_path, content_type)
-            for key, file_path in files
-        ]
-        return await asyncio.gather(*tasks)
-
     def extract_key(self, url: str) -> str:
-        """Extract the S3 key from a full URL"""
         return url.replace(self.prefix, "").strip()
     
     def get_chapter_cover_key(self, chapter_id: UUID | str) -> str:
         return f"ougi/thumbs/chapters/{chapter_id}.webp"
+    
+    def get_manhwa_cover_key(self, manhwa_id: UUID | str, size: str) -> str:
+        return f"ougi/thumbs/chapters/{manhwa_id}-{size}.webp"
+    
+    def append_prefix(self, key: str) -> str:
+        return self.prefix + key

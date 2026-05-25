@@ -1,7 +1,8 @@
-from src.schemas.manhwas import ManhwaCatalogResponse, ManhwaSearchResponse
+from src.schemas.manhwas import ManhwaCatalogResponse, ManhwaSearchResponse, ManhwaCoverUpdate
 from src.schemas.pagination import Pagination
 from src.exceptions import DatabaseException
 from asyncpg import Connection
+from uuid import UUID
 from src import util
 from src import db
 
@@ -200,4 +201,38 @@ async def search_manhwa(
         offset,
         conn,
         *params
+    )
+
+
+async def update_manhwa_cover(manhwa_id: str | UUID, cover: ManhwaCoverUpdate, conn: Connection) -> None:
+    """
+    Updates both the manhwa cover paths and the main manhwa hex color
+    in a single database round-trip using CTEs.
+    """
+    query = """
+        WITH update_covers AS (
+            UPDATE 
+                manhwa_covers
+            SET
+                big = $1,
+                medium = $2,
+                small = $3
+            WHERE
+                id = $4
+        )
+        UPDATE
+            manhwas
+        SET
+            hex_color = $5
+        WHERE
+            id = $4;
+    """
+    
+    await conn.execute(
+        query,
+        cover.big,
+        cover.medium,
+        cover.small,
+        manhwa_id,
+        cover.hex_color
     )

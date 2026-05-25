@@ -27,6 +27,13 @@ class Constants:
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
 
+
+    MANHWA_COVER_TARGET_WIDTHS = {
+        "big": 720,
+        "medium": 320,
+        "small": 160
+    }
+
     MAX_FAILED_LOGIN_ATTEMPTS = 5
 
     RESTRICTED_NAMES = {        

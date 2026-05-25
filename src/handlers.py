@@ -27,10 +27,7 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
         error_message=exc.error_message
     )
 
-    content = {
-        "message": exc.client_message,
-        # "request_id": request_id
-    }
+    content = { "message": exc.client_message }
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -44,7 +41,6 @@ async def pydantic_validation_exception_handler(request: Request, exc: Validatio
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal data validation error.",
-            # "request_id": util.extract_request_id(request),
             "details": exc.errors()
         }
     )
@@ -55,7 +51,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "Data validation failed.",
-            # "request_id": util.extract_request_id(request),
             "details": exc.errors()
         }
     )
@@ -78,8 +73,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
     
     content = {
-        "error": "An unexpected critical error occurred. Our team has been notified.",
-        # "request_id": request_id
+        "error": "An unexpected critical error occurred. Our team has been notified."
     }
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -105,10 +99,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             error_message=f"HTTP {exc.status_code}: {exc.detail}",
         )
     
-    content = {
-        # "request_id": request_id,
-        "error": exc.detail
-    }
+    content = { "error": exc.detail }
     return JSONResponse(
         status_code=exc.status_code,
         content=content,
