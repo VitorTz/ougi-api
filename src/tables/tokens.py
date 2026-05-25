@@ -1,10 +1,11 @@
 from src.exceptions import DatabaseException
 from src.schemas.device_info import DeviceInfo
-from src.schemas.token import ActiveSessionResponse
+from src.schemas.token import SessionResponse
 from asyncpg import Connection
 from datetime import datetime
 from typing import Optional
 from src import util
+from src import db
 
 
 async def process_token_rotation(
@@ -208,13 +209,6 @@ async def revoke_device_session(user_id: str, device_info: str, conn: Connection
 
 
 async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> int:
-    """
-    Deleta tokens que expiraram ou foram revogados há mais de X dias.
-    Tokens ativos nunca são deletados.
-    
-    Returns:
-        Número total de registros deletados.
-    """    
     query = """
         DELETE FROM 
             refresh_tokens 
@@ -222,11 +216,8 @@ async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> 
             (expires_at < NOW() - make_interval(days => $1))
             OR (revoked = TRUE AND created_at < NOW() - make_interval(days => $1));
     """
-    
     try:
-        command_tag = await conn.execute(query, days_to_keep)
-        _, deleted_count = command_tag.split()
-        return int(deleted_count)
+        await db.delete(query, conn, days_to_keep)
     except Exception as e:
         raise DatabaseException(
             client_message="An error occurred while cleaning up old sessions.",
@@ -240,20 +231,15 @@ async def delete_expired_refresh_tokens(days_to_keep: int, conn: Connection) -> 
         )
 
 
-async def get_user_active_sessions(
-    user_id: str, 
-    current_family_id: str, 
-    conn: Connection
-) -> list[ActiveSessionResponse]:
+async def get_active_sessions(user_id: str, conn: Connection) -> list[SessionResponse]:
     """
-    Retrieves all active sessions for the user, hiding sensitive internal data.
-    Flags the session that made the request as 'is_current_session'.
+    Retrieves all active, non-revoked, and unexpired sessions for a given user.
     """
     query = """
         SELECT 
-            family_id AS session_id,
+            id AS session_id,
             device_info,
-            ip_address,
+            HOST(ip_address) AS ip_address, -- Safely extracts the string IP from INET
             created_at,
             expires_at
         FROM 
@@ -261,34 +247,19 @@ async def get_user_active_sessions(
         WHERE 
             user_id = $1::uuid
             AND revoked = FALSE
+            AND replaced_by IS NULL
             AND expires_at > NOW()
         ORDER BY 
             created_at DESC;
     """
-    
     try:
-        rows = await conn.fetch(query, user_id)
-        
-        sessions = []
-        for row in rows:
-            session_data = dict(row)            
-            is_current = str(session_data["session_id"]) == str(current_family_id)
-            session_data["is_current_session"] = is_current            
-            sessions.append(ActiveSessionResponse(**session_data))
-
-        return sessions
+        return await db.fetch(query, SessionResponse, conn, user_id)
     except Exception as e:
         raise DatabaseException(
-            client_message="An error occurred while fetching your active sessions.",
+            client_message="An unexpected error occurred while fetching your active sessions.",
             original_error=e,
             query=query,
-            params={
-                "user_id": user_id, 
-                "current_family_id": current_family_id
-            },
-            additional_context={
-                "action": "get_user_active_sessions",
-                "description": "Failed to retrieve active sessions from the database."
-            },
-            user_id=str(user_id),
+            params=[user_id],
+            additional_context={"action": "get_active_sessions", "user_id": user_id}
         )
+    

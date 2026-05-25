@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, field_validator
+from src.constants import Constants
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 
@@ -37,6 +38,11 @@ class ManhwaCatalogResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator('cover_big', 'cover_medium', 'cover_small')
+    @classmethod
+    def prepend_cloudflare_prefix(cls, v: Optional[str]) -> Optional[str]:
+        return Constants.CLOUDFLARE_PREFIX + v if v else v
+
 
 class ManhwaSearchResponse(BaseModel):
 
@@ -60,3 +66,8 @@ class ManhwaSearchResponse(BaseModel):
     latest_chapter_num: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('cover_medium', 'cover_small')
+    @classmethod
+    def prepend_cloudflare_prefix(cls, v: Optional[str]) -> Optional[str]:
+        return Constants.CLOUDFLARE_PREFIX + v if v else v

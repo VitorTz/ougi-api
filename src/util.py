@@ -1,13 +1,20 @@
-from fastapi import Request
+from fastapi import Request, status, UploadFile
+from fastapi.exceptions import HTTPException
+from PIL import Image
 from src.constants import Constants
 from src.schemas.device_info import DeviceInfo
 from datetime import datetime, timezone, date
 from difflib import SequenceMatcher
 from uuid6 import uuid7
-import traceback
-import uuid
 import unicodedata
+import traceback
+import io
+import uuid
 import re
+
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
 
 
 def seconds_until(target: datetime) -> int:
@@ -106,7 +113,15 @@ def is_of_legal_age(birthdate: date, legal_age: int = 18) -> bool:
     return age >= legal_age
 
 
-def is_valid_image_signature(header_bytes: bytes) -> bool:
+def validate_file_content(file: UploadFile) -> bool:
+    if file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_MIME_TYPES)}"
+        )
+
+
+def extract_image_extension(header_bytes: bytes) -> str:
     """
     Validates if an uploaded file is a genuine image (JPEG, PNG, WEBP, GIF)
     by checking its 'magic numbers' (file signatures).
@@ -121,13 +136,16 @@ def is_valid_image_signature(header_bytes: bytes) -> bool:
     
     # WEBP signatures have 'RIFF' at the start and 'WEBP' at bytes 8-11
     if header_bytes.startswith(b'RIFF') and header_bytes[8:12] == b'WEBP':
-        return True
+        return "webp"
         
-    for signature in signatures:
+    for signature, ext in signatures.items():
         if header_bytes.startswith(signature):
-            return True
+            return ext
             
-    return False
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Invalid file extension. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+    )
 
 
 def generate_slug(title: str) -> str:
@@ -135,32 +153,6 @@ def generate_slug(title: str) -> str:
     normalized = normalized.lower()
     slug = re.sub(r'[^a-z0-9]+', '-', normalized)
     return slug.strip('-')
-
-
-def redact_sensitive_data(payload: dict) -> dict:
-    """
-    Recursively scans a dictionary and masks sensitive fields (like passwords or tokens).
-    Extremely useful before saving JSON payloads to your audit logs or system logs.
-    """
-    sensitive_keys = {
-        'password', 
-        'password_hash', 
-        'token', 
-        'access_token', 
-        'refresh_token', 
-        'credit_card'
-    }
-    redacted = {}
-    
-    for key, value in payload.items():
-        if isinstance(value, dict):
-            redacted[key] = redact_sensitive_data(value)
-        elif key.lower() in sensitive_keys:
-            redacted[key] = "********"
-        else:
-            redacted[key] = value
-            
-    return redacted
 
 
 def is_uuid(v: str):
@@ -178,4 +170,53 @@ def generate_uuid_v7() -> str:
 
 
 def extract_request_id(request: Request) -> str:
-    return getattr(request.state, "request_id", "unknown")
+    # return getattr(request.state, "request_id", "unknown")
+    return request.state.request_id
+
+
+async def convert_to_webp(file_data: bytes, max_width: int = 512) -> tuple[bytes, tuple[int, int]]:
+    try:
+        img = Image.open(io.BytesIO(file_data))
+
+        if img.mode in ("RGBA", "LA", "P"):
+            rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+            rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+            img = rgb_img
+
+        if img.width > max_width:
+            aspect_ratio = img.height / img.width
+            new_height = int(max_width * aspect_ratio)
+            
+            img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
+        
+        final_size = img.size
+        
+        output = io.BytesIO()
+        img.save(output, format="WEBP", quality=85, method=6)
+        output.seek(0)
+        
+        return output.getvalue(), final_size
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to process image: {str(e)}"
+        )
+
+
+def format_bytes(num_bytes: int) -> str:
+    if num_bytes < 0:
+        num_bytes = abs(num_bytes)
+    
+    unities = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+    value = float(num_bytes)
+    index = 0
+
+    while value >= 1024 and index < len(unities) - 1:
+        value /= 1024
+        index += 1
+
+    if value.is_integer():
+        return f"{int(value)} {unities[index]}"
+    else:
+        return f"{value:.1f} {unities[index]}"

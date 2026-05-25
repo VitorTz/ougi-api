@@ -32,3 +32,7 @@ class Pagination(BaseModel, Generic[T]):
     def has_previous(self) -> bool:
         """Checks if there is a previous page available."""
         return self.current_page > 1
+    
+    @staticmethod
+    def empty_pagination(limit: int, offset: int) -> 'Pagination':
+        return Pagination(items=[], total_items=0, limit=limit, offset=offset)

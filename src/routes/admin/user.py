@@ -73,7 +73,22 @@ async def list_users(
     )
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@router.get("/{user_id}", status_code=status.HTTP_200_OK, response_model=UserPublicResponse)
+async def get_user(
+    request: Request,
+    user_id: str = Path(
+        ...,
+        title="User ID",
+        description="The user unique UUID"
+    ),
+    conn: Connection = Depends(db.db_connection)
+):
+    user: UserPublicResponse | None = await users_table.get_user_by_id(user_id, conn)
+    if not user: raise ResourceNotFoundException(f"User {user_id}")
+    return user
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("32/minute")
 async def delete_user(
     request: Request,
@@ -109,7 +124,7 @@ async def update_user_role(
     Updates the role of a specific user. 
     Triggers a background task to record the action in the audit logs.
     """
-    id_actor: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
+    id_actor: str = jwt_utils.extract_sub(access_token)
     
     success: bool = await users_table.update_role_user(user_id, role, conn)
     

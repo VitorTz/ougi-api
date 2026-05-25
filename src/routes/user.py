@@ -30,7 +30,7 @@ async def update_user(
     access_token: Optional[str] = Cookie(default=None),
     conn: Connection = Depends(db_connection)
 ):
-    user_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
+    user_id: str = jwt_utils.extract_sub(access_token)
         
     if not payload.model_dump(exclude_unset=True):
         raise EmptyUpdateException()

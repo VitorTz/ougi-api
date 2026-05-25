@@ -3,28 +3,147 @@ from fastapi import (
     status, 
     Request, 
     Path, 
+    UploadFile, 
+    File,
     Depends,
     BackgroundTasks,
     Cookie
 )
+from src.schemas.chapter import (
+    ChapterResponse, 
+    ChapterUpdate, 
+    ChapterUpdateCoverResponse
+)
+from fastapi.exceptions import HTTPException
+from src.constants import Constants
 from src.dependencies import get_limiter
-from src.exceptions import ResourceNotFoundException, EmptyUpdateException
+from src.exceptions import ResourceNotFoundException, DatabaseException
 from src.tables import chapters as chapter_table
 from src.tables import audit_log as audit_log_table
-from src.schemas.chapter import ChapterResponse, ChapterUpdate
+from src.cloudflare import CloudflareR2Bucket
 from asyncpg import Connection
 from typing import Optional
 from src.security import jwt_utils
-from src.util import extract_client_ip
+from src import util
 from src.db import db_connection
+from uuid import UUID
+import io
 
 
 router = APIRouter(prefix="/chapters")
 limiter = get_limiter()
 
 
+@router.post(
+    "/{chapter_id}/cover",
+    response_model=ChapterUpdateCoverResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update Chapter Cover Image",
+    description="Upload and update the cover image for a chapter. Image is automatically converted to WebP format for optimal storage. Only authenticated staff members can perform this action, and all changes are logged in the audit trail.",
+    tags=["chapters"]
+)
+async def update_chapter_cover(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    chapter_id: UUID = Path(..., description="Chapter ID (UUID)"),
+    file: UploadFile = File(..., description="Cover image file (JPG, PNG, or WebP, max 5MB)"),
+    access_token: Optional[str] = Cookie(default=None),
+    conn: Connection = Depends(db_connection)
+):  
+    # Auditing
+    actor_id = jwt_utils.extract_value(access_token)
+    actor_ip = util.extract_client_ip(request)
+    
+    # Validate image  
+    util.validate_file_content(file)
+    file_header = await file.read(12)
+    ext: str = util.extract_image_extension(file_header)
+    
+    # Read bytes
+    await file.seek(0)
+    file_data = await file.read()
+    original_image_size_bytes: int = len(file_data)
+
+    # Validate image size
+    if original_image_size_bytes > Constants.MAX_CHAPTER_COVER_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_PAYLOAD_TOO_LARGE,
+            detail=f"File size exceeds {Constants.MAX_CHAPTER_COVER_SIZE / 1024 / 1024:.0f}MB limit"
+        )
+    
+    if original_image_size_bytes == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is empty"
+        )
+    
+
+    chapter: ChapterResponse | None = await chapter_table.get_chapter_by_id(chapter_id, conn)
+    if not chapter: raise ResourceNotFoundException(f"Chapter {chapter_id}")
+    
+    try:
+        webp_data, final_size = await util.convert_to_webp(file_data, max_width=Constants.CHAPTER_COVER_MAX_WIDTH)
+        image_final_size_bytes: int = len(webp_data)
+
+        r2 = await CloudflareR2Bucket.get_instance()
+        key: str = r2.get_chapter_cover_key(chapter_id)
+            
+        chapter.cover_path = await r2.upload_bytes(
+            key=key,
+            data=io.BytesIO(webp_data),
+            content_type="image/webp"
+        )
+        
+        await chapter_table.update_chapter_cover(chapter_id, key, conn)
+        
+        # Audit logging        
+        background_tasks.add_task(
+            audit_log_table.insert_audit_log,
+            action="update_chapter_cover",
+            table_name="chapters",
+            record_id=str(chapter_id),
+            actor_id=actor_id,
+            ip_address=actor_ip,
+            new_data={
+                "cover_path": chapter.cover_path,
+                "r2_key": key,
+                "file_size_bytes": original_image_size_bytes,
+                "webp_size_bytes": image_final_size_bytes,
+                "original_extension": ext,
+                "final_dimensions": {
+                    "width": final_size[0],
+                    "height": final_size[1]
+                }
+            }
+        )
+
+        return ChapterUpdateCoverResponse(
+            id=chapter.id,
+            num=chapter.num,
+            title=chapter.title,
+            views=chapter.views,
+            cover_path=chapter.cover_path,
+            image_width=final_size[0],
+            image_heiht=final_size[1],
+            image_size=util.format_bytes(image_final_size_bytes)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise DatabaseException(
+            client_message="Failed to update chapter cover",
+            original_error=e,
+            additional_context={
+                "action": "update_chapter_cover",
+                "chapter_id": str(chapter_id),
+                "file_name": file.filename,
+                "file_size": original_image_size_bytes
+            }
+        )
+
+
 @router.patch(
-    "/{chapter_id}", 
+    "/", 
     response_model=ChapterResponse,
     status_code=status.HTTP_200_OK,
     summary="Update Chapter Metadata",
@@ -34,34 +153,26 @@ limiter = get_limiter()
 async def update_chapter(
     request: Request,
     background_tasks: BackgroundTasks,
-    chapter_id: str = Path(..., description="The UUID of the chapter to be updated."),
     payload: ChapterUpdate = Depends(),
     access_token: Optional[str] = Cookie(default=None),
-    conn: Connection = Depends(db_connection),
+    conn: Connection = Depends(db_connection)
 ):    
-    if not payload.model_dump(exclude_unset=True, exclude={"id"}):
-        raise EmptyUpdateException()
-
-    chapter: ChapterResponse | None = await chapter_table.update_chapter(
-        chapter_id=chapter_id, 
-        payload=payload, 
-        conn=conn
-    )    
+    chapter: ChapterResponse = await chapter_table.update_chapter(payload, conn)
 
     if not chapter:
-        raise ResourceNotFoundException(f"Chapter")    
+        raise ResourceNotFoundException(f"Chapter {payload.id}")
             
-    actor_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
-    actor_ip: str = extract_client_ip(request)
+    actor_id: str = jwt_utils.extract_sub(access_token)
+    actor_ip: str = util.extract_client_ip(request)
         
     background_tasks.add_task(
         audit_log_table.insert_audit_log,
         action="update_chapter",
         table_name="chapters",
-        record_id=chapter_id,
+        record_id=payload.id,
         actor_id=actor_id,
         ip_address=actor_ip,
-        new_data=payload.model_dump(exclude_unset=True, exclude={"id"})
+        new_data=payload.model_dump()
     )
         
     return chapter
@@ -77,17 +188,17 @@ async def update_chapter(
 async def delete_chapter(
     request: Request,
     background_tasks: BackgroundTasks,
-    chapter_id: str = Path(..., description="The UUID of the chapter to be deleted."),
-    access_token: Optional[str] = Cookie(default=None),
+    chapter_id: UUID = Path(..., description="The UUID of the chapter to be deleted."),
+    access_token: str | None = Cookie(default=None),
     conn: Connection = Depends(db_connection),
 ):
-    deleted_data: Optional[dict] = await chapter_table.delete_chapter(chapter_id, conn)
+    deleted_data: dict | None = await chapter_table.delete_chapter(chapter_id, conn)
     
     if not deleted_data:
         raise ResourceNotFoundException("Chapter")
     
-    actor_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
-    actor_ip: str = extract_client_ip(request)
+    actor_id: str = jwt_utils.extract_sub(access_token)
+    actor_ip: str = util.extract_client_ip(request)
     
     background_tasks.add_task(
         audit_log_table.insert_audit_log,

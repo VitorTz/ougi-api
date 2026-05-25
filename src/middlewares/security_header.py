@@ -31,14 +31,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # 5. Content Security Policy (CSP)
         # Since this is an API, CSP mostly protects endpoints that return images (like your SVG identicons)
         # preventing them from executing embedded malicious javascript.
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; "
-            "frame-ancestors 'none'; "
-            "img-src 'self' data: https:; " # Allows HTTPS images (like covers from S3/R2 buckets)
-            "base-uri 'none'; "
-            "form-action 'none';"
-        )
-        
+        if Constants.IS_PRODUCTION:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; "
+                "frame-ancestors 'none'; "
+                "img-src 'self' data: https:; " 
+                "base-uri 'none'; "
+                "form-action 'none';"
+            )
+            
         # 6. Referrer Policy (Protects user privacy when navigating away)
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         

@@ -22,14 +22,13 @@ class ChapterCreate(ChapterBase):
 class ChapterUpdate(BaseModel):
 
     id: UUID
-    cover_path: Optional[str] = None
     sort_order: Optional[int] = Field(None, ge=0)
     num: Optional[Decimal] = Field(None, ge=0, max_digits=5, decimal_places=1)
     title: Optional[str] = None
     is_published: Optional[bool] = None
 
 
-class ChapterResponse(ChapterBase):
+class ChapterResponse(BaseModel):
 
     id: UUID
     cover_path: Optional[str]
@@ -38,3 +37,11 @@ class ChapterResponse(ChapterBase):
     views: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ChapterUpdateCoverResponse(ChapterResponse):
+    
+    image_size: str
+    image_width: int
+    image_heiht: int
+    

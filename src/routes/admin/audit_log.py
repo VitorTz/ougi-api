@@ -7,6 +7,7 @@ from fastapi import (
     Query
 )
 from src.schemas.audit_log import AuditLogResponse
+from src.schemas.pagination import Pagination
 from src.dependencies import get_limiter
 from src.exceptions import ResourceNotFoundException
 from src.tables import audit_log as audit_log_table
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/audit-log")
 limiter = get_limiter()
 
 
-@router.get("", response_model=list[AuditLogResponse], status_code=status.HTTP_200_OK)
+@router.get("", response_model=Pagination[AuditLogResponse], status_code=status.HTTP_200_OK)
 @limiter.limit("32/minute")
 async def list_audit_logs(
     request: Request,
@@ -45,7 +46,11 @@ async def list_audit_logs(
     )
 
 
-@router.get("/{log_id}", response_model=AuditLogResponse, status_code=status.HTTP_200_OK)
+@router.get(
+    "/{log_id}", 
+    response_model=AuditLogResponse,
+    status_code=status.HTTP_200_OK
+)
 @limiter.limit("32/minute")
 async def get_audit_log_details(
     request: Request,
@@ -78,14 +83,23 @@ async def delete_audit_log(
     if not success: raise ResourceNotFoundException("Audit log entry")
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_200_OK)
 @limiter.limit("16/minute")
 async def clear_old_audit_logs(
     request: Request,
-    days_to_keep: int = Query(default=30, ge=0, description="Delete logs older than this many days. Use 0 to truncate all."),
+    days_to_keep: int = Query(
+        default=30, 
+        ge=0, 
+        description="Delete audit logs older than this many days. Use 0 to delete all logs."
+    ),
     conn: Connection = Depends(db_connection)
 ):
     """
     Bulk delete old audit logs for database maintenance.
     """
-    await audit_log_table.delete_old_audit_logs(days_to_keep, conn)
+    deleted_count: int = await audit_log_table.delete_old_audit_logs(days_to_keep, conn)
+    return {
+        "message": "Logs cleaned up successfully.",
+        "deleted_count": deleted_count,
+        "days_kept": days_to_keep
+    }

@@ -25,17 +25,15 @@ QUERY = """
         username,
         email,
         password_hash,
-        role,
-        is_adult
+        role
     )
     VALUES
-        (%s, %s, %s, %s, TRUE)
+        (%s, %s, %s, 'admin')
     RETURNING
         id, 
         username, 
         email, 
-        role, 
-        is_adult
+        role
 """
 
 
@@ -74,7 +72,7 @@ def main():
         with conn.cursor() as cur:
             cur.execute(
                 QUERY,
-                (username, email, hashed_password, 'admin')
+                (username, email, hashed_password)
             )
             
             new_admin = cur.fetchone()        

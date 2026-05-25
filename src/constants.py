@@ -17,9 +17,12 @@ class Constants:
     DEFAULT_BANNER_WIDTH = 1500
     DEFAULT_BANNER_HEIGHT = 500
 
-    IS_PRODUCTION = os.getenv("ENV", "DEV").lower().upper() == "PROD"
+    MAX_CHAPTER_COVER_SIZE = 5 * 1024 * 1024  # 5MB
+    CHAPTER_COVER_MAX_WIDTH = 512
 
-    REFRESH_TOKEN_EXPIRE_DAYS = 7
+    IS_PRODUCTION = os.getenv("ENV", "dev").lower() == "prod"
+
+    REFRESH_TOKEN_EXPIRE_DAYS = 3
     ACCESS_TOKEN_EXPIRE_MINUTES = 15
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")

@@ -21,7 +21,11 @@ router = APIRouter(prefix="/logs")
 limiter = get_limiter()
 
 
-@router.get("", status_code=status.HTTP_200_OK, response_model=Pagination[SystemLogResponse])
+@router.get(
+    "", 
+    status_code=status.HTTP_200_OK, 
+    response_model=Pagination[SystemLogResponse]
+)
 @limiter.limit("32/minute")
 async def list_logs(
     request: Request,

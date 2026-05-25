@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, APIRouter, status, Depends
 from asyncpg import Connection
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
+from pydantic import ValidationError
 from src.constants import Constants
 from src.routes import manhwas
 from src.routes import auth
@@ -9,7 +10,7 @@ from src.routes.admin import router as admin
 from src.routes.moderator import router as moderator
 from src.routes import chapters
 from src.routes import identicon
-from src.exceptions import DatabaseException, DuplicateRecordError
+from src.exceptions import DatabaseException, DuplicateRecordError, EmptyUpdateException
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -17,13 +18,14 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from src.middlewares.bot_detection import BotDetectionMiddleware
 from src.middlewares.security_header import SecurityHeadersMiddleware
 from src.middlewares.request_id import RequestIDMiddleware
-from src.middlewares.size_limit import RequestSizeLimitMiddleware
+from src.middlewares.size_limit import RequestSizeLimitASGIMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from src import db
 from src import handlers
 from src.dependencies import get_limiter
 import contextlib
 import uvicorn
+import time
 
 
 limiter = get_limiter()
@@ -31,12 +33,22 @@ limiter = get_limiter()
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"[API] [STARTING {Constants.API_NAME}]")
-    await db.db_connect()
-    print(f"[API] [{Constants.API_NAME} STARTED]")
+    start_time = time.time()
+    print(f"[API] Initializing {Constants.API_NAME} v{Constants.API_VERSION} Prod: {Constants.IS_PRODUCTION}...")
+    
+    try:
+        await db.db_connect()
+        startup_duration = time.time() - start_time
+        print(f"[API] {Constants.API_NAME} started successfully in {startup_duration:.2f}s")
+    except Exception as e:
+        print(f"[API] Failed to connect to database: {e}")
+        raise e
+        
     yield
+    
+    print(f"[API] Shutting down {Constants.API_NAME}...")
     await db.db_disconnect()
-    print(f"[API] [SHUTTING DOWN {Constants.API_NAME}]")
+    print(f"[API] {Constants.API_NAME} shut down cleanly.")
 
 
 app = FastAPI(
@@ -52,7 +64,7 @@ app = FastAPI(
 
 ############################ Middlewares #############################
 app.add_middleware(GZipMiddleware)
-app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(RequestSizeLimitASGIMiddleware)
 app.add_middleware(BotDetectionMiddleware)
 
 if Constants.IS_PRODUCTION:
@@ -76,12 +88,14 @@ if Constants.IS_PRODUCTION:
 
 ############################ Exception Handlers #############################
 
+app.add_exception_handler(ValidationError, handlers.pydantic_validation_exception_handler)
 app.add_exception_handler(RequestValidationError, handlers.validation_exception_handler)
-app.add_exception_handler(StarletteHTTPException, handlers.http_exception_handler)
-app.add_exception_handler(DatabaseException, handlers.database_exception_handler)
-app.add_exception_handler(Exception, handlers.global_exception_handler)
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(DuplicateRecordError, handlers.duplicate_record_exception_handler)
+app.add_exception_handler(EmptyUpdateException, handlers.empty_update_exception_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(DatabaseException, handlers.database_exception_handler)
+app.add_exception_handler(StarletteHTTPException, handlers.http_exception_handler)
+app.add_exception_handler(Exception, handlers.global_exception_handler)
 
 app.state.limiter = limiter
 
@@ -106,7 +120,7 @@ async def check_system_health(
     request: Request,
     conn: Connection = Depends(db.db_connection)
 ):
-    is_db_healthy = await db.ping_database(conn)
+    is_db_healthy = await db.ping(conn)
     
     if not is_db_healthy:
         raise HTTPException(

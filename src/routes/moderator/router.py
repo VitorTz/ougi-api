@@ -1,8 +1,8 @@
-from src.security.cookies import require_moderator_access
 from src.dependencies import get_limiter
 from fastapi import APIRouter, Depends
 from src.routes.moderator import chapter
 from src.routes.moderator import user
+from src.tables.user import require_moderator_access
 
 
 router = APIRouter(

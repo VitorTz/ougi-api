@@ -40,7 +40,7 @@ async def ban_user(
     if not success:
         raise ResourceNotFoundException("User")
         
-    actor_id: str = jwt_utils.extract_value_from_jwt_token(access_token, "sub")
+    actor_id: str = jwt_utils.extract_sub(access_token)
     actor_ip: str = extract_client_ip(request)
     
     background_tasks.add_task(

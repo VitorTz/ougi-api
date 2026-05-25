@@ -23,19 +23,18 @@ def create_token(**kwargs) -> JWtTokenCreate:
     )
     
 
-def create_jwt_access_token(user_id: str | UUID, role: str) -> JWtTokenCreate:
+def create_access_token(user_id: str | UUID) -> JWtTokenCreate:
     """
     Creates a short-lived access token for the user.
     """
     return create_token(
         sub=str(user_id),
-        role=role,
         type="access",
         exp=datetime.now(timezone.utc) + timedelta(minutes=Constants.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
 
-def create_jwt_refresh_token(user_id: str | UUID, token_id: str) -> JWtTokenCreate:    
+def create_refresh_token(user_id: str | UUID, token_id: str | UUID) -> JWtTokenCreate:    
     """
     Creates a long-lived refresh token for session rotation.
     """
@@ -47,7 +46,7 @@ def create_jwt_refresh_token(user_id: str | UUID, token_id: str) -> JWtTokenCrea
     )
 
 
-def extract_jwt_token(jwt_token: str) -> dict[str, Any]:
+def decode_token(jwt_token: str) -> dict[str, Any]:
     """
     Decodes and validates a JWT token, returning its payload.
     Throws CREDENTIALS_EXCEPTION if the token is missing, expired, or invalid.
@@ -65,24 +64,12 @@ def extract_jwt_token(jwt_token: str) -> dict[str, Any]:
         raise CredentialsException()
     
 
-def extract_value_from_jwt_token_if_exists(token: str, key: str) -> str | None:
-    """
-    Safely attempts to extract a specific key from a token.
-    Returns None if the token is invalid, expired, or the key is missing.
-    """
-    try:
-        payload: dict[str, Any] = extract_jwt_token(token)
-        return payload.get(key)
-    except Exception:
-        return None
-
-
-def extract_value_from_jwt_token(token: str, key: str) -> str:
+def extract_value(token: str, key: str) -> str:
     """
     Strictly extracts a specific key from a token.
     Throws CREDENTIALS_EXCEPTION if the token is invalid or the key is missing.
     """
-    payload: dict[str, Any] = extract_jwt_token(token)
+    payload: dict[str, Any] = decode_token(token)
     value = payload.get(key)
     
     if not value: 
@@ -91,7 +78,27 @@ def extract_value_from_jwt_token(token: str, key: str) -> str:
     return value
 
 
-def calculate_jwt_token_ttl(token: str | None) -> int:
+def extract_sub(token: str) -> str:
+    return extract_value(token, "sub")
+    
+
+def extract_jti(token: str) -> str:
+    return extract_value(token, "jti")
+
+
+def extract_value_if_exists(token: str, key: str) -> str | None:
+    """
+    Safely attempts to extract a specific key from a token.
+    Returns None if the token is invalid, expired, or the key is missing.
+    """
+    try:
+        payload: dict[str, Any] = decode_token(token)
+        return payload.get(key)
+    except Exception:
+        return None
+
+
+def calculate_ttl(token: str | None) -> int:
     """
     Calculates the remaining Time-To-Live (TTL) of a token in seconds.
     Safely ignores the expiration check to read the 'exp' claim.

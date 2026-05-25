@@ -41,12 +41,15 @@ class MaxLoginAttemptException(HTTPException):
         )
 
 
-class EmptyUpdateException(HTTPException):
+class EmptyUpdateException(Exception):
+    """
+    Exception raised when a PATCH request is made with an empty payload,
+    meaning no valid fields were provided for the update.
+    """
     def __init__(self, detail: str = "No valid fields provided for update."):
-        super().__init__(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail
-        )
+        self.detail = detail
+        super().__init__(self.detail)
+        
 
 class ConflictException(HTTPException):
 

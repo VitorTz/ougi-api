@@ -1,8 +1,9 @@
 from fastapi import BackgroundTasks, Request, status
 from fastapi.responses import JSONResponse
-from src.exceptions import DatabaseException, DuplicateRecordError
+from src.exceptions import DatabaseException, DuplicateRecordError, EmptyUpdateException
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import ValidationError
 from src.tables import logs as logs_table
 from src import util
 
@@ -28,7 +29,7 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
 
     content = {
         "message": exc.client_message,
-        "request_id": request_id
+        # "request_id": request_id
     }
     
     return JSONResponse(
@@ -38,28 +39,32 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
     )
 
 
+async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "Internal data validation error.",
+            # "request_id": util.extract_request_id(request),
+            "details": exc.errors()
+        }
+    )
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = []
-    for error in exc.errors():
-        field = " -> ".join(str(loc) for loc in error.get("loc", []))
-        errors.append({"field": field, "message": error.get("msg")})    
-
-    content = content={
-        "error": "Data validation failed.",
-        "request_id": util.extract_request_id(request),
-        "details": errors
-    }
-
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=content
+        content={
+            "error": "Data validation failed.",
+            # "request_id": util.extract_request_id(request),
+            "details": exc.errors()
+        }
     )
 
 
 async def global_exception_handler(request: Request, exc: Exception):
-    request_id=util.extract_request_id(request)
+    request_id = util.extract_request_id(request)
     background_tasks = BackgroundTasks()
-    BackgroundTasks().add_task(
+    background_tasks.add_task(
         logs_table.insert_log,
         error_type=type(exc).__name__,
         error_message=str(exc),
@@ -74,7 +79,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     
     content = {
         "error": "An unexpected critical error occurred. Our team has been notified.",
-        "request_id": request_id
+        # "request_id": request_id
     }
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -85,13 +90,29 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     request_id = util.extract_request_id(request)
+    
+    background_tasks = BackgroundTasks()
+    if exc.status_code >= 500:
+        background_tasks.add_task(
+            logs_table.insert_log,
+            error_type="HTTPException",
+            error_level="ERROR",
+            ip_address=util.extract_client_ip(request),
+            user_agent=util.extract_user_agent(request),
+            request_id=request_id,
+            request_method=request.method,
+            request_path=request.url.path,
+            error_message=f"HTTP {exc.status_code}: {exc.detail}",
+        )
+    
     content = {
-        "request_id": request_id,
+        # "request_id": request_id,
         "error": exc.detail
     }
     return JSONResponse(
         status_code=exc.status_code,
-        content=content
+        content=content,
+        background=background_tasks
     )
 
 
@@ -99,4 +120,11 @@ async def duplicate_record_exception_handler(request: Request, exc: DuplicateRec
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT,
         content={"detail": exc.detail}
+    )
+
+
+async def empty_update_exception_handler(request: Request, exc: EmptyUpdateException):
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"error": exc.detail}
     )

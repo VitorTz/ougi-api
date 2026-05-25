@@ -1,8 +1,24 @@
-from src.schemas.user import UserPublicResponse, UserCreate, UserRole, UserUpdate
-from src.schemas.pagination import Pagination
-from src.exceptions import DatabaseException, DuplicateRecordError
+from src.exceptions import (
+    DatabaseException, 
+    DuplicateRecordError, 
+    EmptyUpdateException,
+    CredentialsException
+)
+from src.schemas.user import (
+    UserPublicResponse, 
+    UserCreate, 
+    UserRole, 
+    UserUpdate
+)
+from fastapi import Cookie, Depends
 from asyncpg import Connection, UniqueViolationError
+from src.schemas.pagination import Pagination
+from src.schemas.device_info import DeviceInfo
+from src.security import jwt_utils
+from datetime import datetime
 from typing import Optional
+from src import util
+from src import db
 
 
 USER_PUBLIC_INFO_COLUMNS = """
@@ -31,29 +47,56 @@ USER_SENSITIVE_INFO_COLUMNS = """
 """
 
 
-async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicResponse]:
-    row = await conn.fetchrow(
-        f"""
-            UPDATE
-                users u
-            SET
-                u.last_seen_at = NOW()
-            WHERE
-                u.id = $1 
-                AND u.is_active IS TRUE
-            RETURNING
-                {USER_PUBLIC_INFO_COLUMNS};
-        """,
+async def require_role(
+    access_token: str | None,
+    conn: Connection,
+    *roles: str
+):
+    user_id: str | None = jwt_utils.extract_sub(access_token)
+    role = await conn.fetchval(
+        "SELECT role FROM users WHERE id = $1::uuid;",
         user_id
     )
-    return UserPublicResponse(**row) if row else None
+    if not role or role not in roles: 
+        raise CredentialsException()
+
+
+async def require_admin_access(
+    access_token: str | None = Cookie(default=None),
+    conn: Connection = Depends(db.db_connection)
+) -> str | None:
+    """Dependency for admin-only routes."""
+    await require_role(access_token, conn, 'admin')
+
+
+async def require_moderator_access(
+    access_token: str | None = Cookie(default=None),
+    conn: Connection = Depends(db.db_connection)
+) -> str | None:
+    """Dependency for routes that allow either admins or moderators."""
+    await require_role(access_token, conn, 'admin', 'moderator')
+
+
+async def get_user_by_id(user_id: str, conn: Connection) -> Optional[UserPublicResponse]:
+    query = f"""
+        UPDATE
+            users u
+        SET
+            last_seen_at = NOW()
+        WHERE
+            u.id = $1 
+            AND u.is_active IS TRUE
+        RETURNING
+            {USER_PUBLIC_INFO_COLUMNS};
+    """
+    return await db.fetchrow(query, UserPublicResponse, conn, user_id)    
 
 
 async def get_user_login_data(identifier: str, ip_address: str, conn: Connection) -> dict:
     """
-    Recupera dados sensíveis do usuário e conta tentativas falhas baseadas no IP.
-    Sempre retorna um dicionário contendo 'recent_failed_attempts', mesmo que o usuário não exista,
-    prevenindo ataques de enumeração e Account Lockout DoS.
+    Retrieves sensitive user data and counts failed attempts based on IP.
+    Always returns a dictionary containing 'recent_failed_attempts', even if the user does not exist,
+    preventing enumeration attacks and Account Lockout DoS.
     """
     query = f"""
         WITH updated_user AS (
@@ -90,7 +133,6 @@ async def get_user_login_data(identifier: str, ip_address: str, conn: Connection
     try:
         row = await conn.fetchrow(query, identifier, ip_address)        
         return dict(row)
-        
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while verifying your credentials.",
@@ -104,7 +146,7 @@ async def get_user_login_data(identifier: str, ip_address: str, conn: Connection
         )
 
 
-async def create_user(user: UserCreate, conn: Connection):
+async def create_user(user: UserCreate, conn: Connection) -> None:
     query = """
         INSERT INTO users (
             username,
@@ -157,12 +199,11 @@ async def update_role_user(user_id: str, role: UserRole, conn: Connection) -> bo
             id;
     """
     try:
-        row = await conn.fetchval(
+        return await conn.fetchval(
             query,
             role.value,
             user_id
-        )
-        return row is not None
+        ) is not None
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while updating the user role.",
@@ -193,8 +234,7 @@ async def ban_user(user_id: str, conn: Connection) -> bool:
             id;
     """
     try:
-        row = await conn.fetchval(query, user_id)
-        return row is not None
+        return await conn.fetchval(query, user_id) is not None
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while banning the user.",
@@ -217,7 +257,7 @@ async def update_user(
     update_data = payload.model_dump(exclude_unset=True)
         
     if not update_data: 
-        return None
+        raise EmptyUpdateException()
     
     set_clauses = []
     params = []
@@ -240,7 +280,7 @@ async def update_user(
     """
     
     try:
-        row = await conn.fetchrow(query, *params)        
+        return await db.fetchrow(query, UserPublicResponse, conn, *params)
     except UniqueViolationError as e:
         constraint = getattr(e, 'constraint_name', '')        
         if constraint == "users_username_key":
@@ -261,9 +301,7 @@ async def update_user(
                 "attempted_updates": list(update_data.keys())
             }
         )
-
-    return UserPublicResponse(**row) if row else None
-
+    
 
 async def get_users(
     conn: Connection,
@@ -278,8 +316,7 @@ async def get_users(
     """    
     conditions = []
     params = []
-    
-    # 1. Build the dynamic filters
+        
     if username:
         params.append(f"%{username}%")
         conditions.append(f"u.username ILIKE ${len(params)}")
@@ -294,57 +331,144 @@ async def get_users(
         
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         
-    count_query = f"SELECT COUNT(u.id) FROM users u {where_clause};"
-    
-    fetch_params = params.copy()
-    fetch_params.extend([limit, offset])
-    
-    fetch_query = f"""
+    params.extend([limit, offset])
+        
+    query = f"""
         SELECT 
-            {USER_PUBLIC_INFO_COLUMNS}
+            {USER_PUBLIC_INFO_COLUMNS},
+            COUNT(*) OVER() AS total_count
         FROM 
             users u
         {where_clause}
         ORDER BY 
             u.created_at DESC
         LIMIT 
-            ${len(fetch_params) - 1} 
+            ${len(params) - 1} 
         OFFSET 
-            ${len(fetch_params)};
+            ${len(params)};
     """
         
     try:
-        total_items = await conn.fetchval(count_query, *params)
-        
-        if total_items == 0:
-            return Pagination(
-                items=[], 
-                total_items=0, 
-                limit=limit, 
-                offset=offset
-            )        
-            
-        rows = await conn.fetch(fetch_query, *fetch_params)        
+        return await db.fetch_pagination(
+            query,
+            UserPublicResponse,
+            limit,
+            offset,
+            conn,
+            *params
+        )
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while fetching the user list.",
             original_error=e,
-            query=fetch_query,
-            params=fetch_params,
+            query=query,
+            params=params,
             additional_context={"action": "get_users"}
         )
-    
-    parsed_items: list[UserPublicResponse] = [
-        UserPublicResponse(**dict(row)) for row in rows
-    ]
-        
-    return Pagination(
-        items=parsed_items,
-        total_items=total_items,
-        limit=limit,
-        offset=offset
-    )
 
 
 async def delete_user(user_id: str, conn: Connection) -> None:
     await conn.execute("DELETE FROM users WHERE id = $1;", user_id)
+
+
+async def rotate_session_and_get_user(
+    new_token_id: str,
+    user_id: str,
+    expires_at: datetime,
+    device_info: DeviceInfo,
+    conn: Connection,
+    old_token_id: str
+) -> Optional[UserPublicResponse]:
+    """
+    Updates the user's last_seen_at, revokes the old refresh token, and inserts the new one.
+    All operations are performed in a single atomic database round-trip.
+    If the user does not exist or is inactive, no tokens are rotated and None is returned.
+    """
+    new_family_id = util.generate_uuid_v7()
+    
+    query = f"""
+        WITH updated_user AS (
+            UPDATE
+                users u
+            SET
+                last_seen_at = NOW()
+            WHERE
+                u.id = $3::uuid
+                AND u.is_active IS TRUE
+            RETURNING
+                {USER_PUBLIC_INFO_COLUMNS}
+        ),
+        get_old_family AS (
+            SELECT 
+                family_id 
+            FROM 
+                refresh_tokens
+            WHERE 
+                id = $2::uuid 
+                AND user_id = $3::uuid
+        ),
+        revoke_old_token AS (
+            UPDATE 
+                refresh_tokens
+            SET 
+                revoked = TRUE,
+                replaced_by = $1::uuid
+            WHERE
+                id = $2::uuid
+                AND user_id = $3::uuid
+                AND EXISTS (SELECT 1 FROM updated_user) -- Garante que só revoga se o usuário for válido
+        ),
+        insert_new_token AS (
+            INSERT INTO refresh_tokens (
+                id,
+                user_id,
+                device_info,
+                ip_address,
+                expires_at,
+                family_id
+            )
+            SELECT 
+                $1::uuid,     
+                $3::uuid,     
+                $4,           
+                $5::inet,     
+                $6,           
+                COALESCE((SELECT family_id FROM get_old_family), $7::uuid)
+            WHERE EXISTS 
+                (SELECT 1 FROM updated_user) 
+        )
+        SELECT 
+            * 
+        FROM 
+            updated_user;
+    """
+
+    try:
+        return await db.fetchrow(
+            query, 
+            UserPublicResponse, 
+            conn, 
+            new_token_id,
+            old_token_id,
+            user_id,
+            device_info.device,
+            device_info.ip_address,
+            expires_at,
+            new_family_id
+        )
+    except Exception as e:
+        raise DatabaseException(
+            client_message="An unexpected error occurred during authentication. Please try logging in again.",
+            original_error=e,
+            query=query,
+            params={
+                "new_token_id": new_token_id,
+                "old_token_id": old_token_id,
+                "user_id": user_id,
+                "expires_at": expires_at.isoformat(),
+                "device_info": device_info.device,
+                "ip_address": device_info.ip_address,
+            },
+            additional_context={"action": "rotate_session_and_get_user"},
+            user_id=str(user_id),
+        )

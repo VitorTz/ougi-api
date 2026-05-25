@@ -1,10 +1,10 @@
-from src.security.cookies import require_admin_access
 from fastapi import APIRouter, Depends
 from src.routes.admin import audit_log
 from src.routes.admin import auth
 from src.routes.admin import database
 from src.routes.admin import system_log
 from src.routes.admin import user
+from src.tables.user import require_admin_access
 
 router = APIRouter(
     prefix="/admin", 

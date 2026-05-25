@@ -3,6 +3,7 @@ from src.schemas.pagination import Pagination
 from src.exceptions import DatabaseException
 from asyncpg import Connection
 from src import util
+from src import db
 
 
 ALLOWED_ORDER = {
@@ -25,7 +26,7 @@ async def get_manhwa(identifier: str, conn: Connection) -> ManhwaCatalogResponse
         query = "SELECT * FROM mv_manhwa_catalog WHERE slug = $1;"
 
     try:
-        row = await conn.fetchrow(query, identifier)
+        return await db.fetchrow(query, ManhwaCatalogResponse, conn, identifier)
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while fetching the manhwa details.",
@@ -34,8 +35,6 @@ async def get_manhwa(identifier: str, conn: Connection) -> ManhwaCatalogResponse
             params=[identifier],
             additional_context={"action": "get_manhwa", "identifier": identifier}
         )
-        
-    return ManhwaCatalogResponse(**row) if row else None
 
 
 async def search_manhwa(
@@ -162,9 +161,9 @@ async def search_manhwa(
     extra_order = ""
     if title:
         extra_order = f", similarity(search_text, ${len(params)}) DESC"
-        
-    select_params = params + [limit, offset]
-    select_query = f"""
+    
+    params.extend([limit, offset])
+    query = f"""
         SELECT 
             id,
             title,
@@ -189,17 +188,16 @@ async def search_manhwa(
             {order_col} DESC NULLS LAST
             {extra_order}
         LIMIT 
-            ${len(select_params) - 1}
+            ${len(params) - 1}
         OFFSET 
-            ${len(select_params)}
+            ${len(params)}
     """
     
-    rows = await conn.fetch(select_query, *select_params)
-    total_items = rows[0]["total_count"] if rows else 0
-    
-    return Pagination(
-        items=[ManhwaSearchResponse(**row) for row in rows],
-        total_items=total_items,
-        limit=limit,
-        offset=offset
+    return await db.fetch_pagination(
+        query,
+        ManhwaSearchResponse,
+        limit,
+        offset,
+        conn,
+        *params
     )

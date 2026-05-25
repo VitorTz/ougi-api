@@ -23,9 +23,9 @@ LOG_INSERT_QUERY = """
         execution_context, 
         stack_trace
     ) VALUES (
-        $1, 
+        $1::uuid,
         $2::INET, 
-        $3, 
+        $3::uuid, 
         $4, 
         $5, 
         $6, 
@@ -33,9 +33,9 @@ LOG_INSERT_QUERY = """
         $8, 
         $9, 
         $10,
-        $11::JSONB, 
-        $11::JSONB,
-        $12
+        $11, 
+        $12,
+        $13
     );
 """
 
@@ -81,11 +81,13 @@ async def insert_log(
     conn: Connection | None = None
 ) -> str | None:
     params_json = json.dumps(query_parameters) if query_parameters else None
-    context_json = json.dumps(execution_context) if execution_context else None
-    params = (
-        str(user_id),
-        request_id,
+    context_json = json.dumps(execution_context) if execution_context else None    
+    await db.execute(
+        LOG_INSERT_QUERY, 
+        conn, 
+        user_id,
         ip_address,
+        request_id,
         user_agent,
         request_method,
         request_path,
@@ -97,11 +99,6 @@ async def insert_log(
         context_json,
         stack_trace
     )
-    if conn:
-        return await conn.execute(LOG_INSERT_QUERY, *params)
-    
-    async with db.pool.acquire() as conn:
-        await conn.execute(LOG_INSERT_QUERY, *params)
 
 
 async def get_logs(
@@ -109,12 +106,12 @@ async def get_logs(
     offset: int,
     conn: Connection,
     error_level: str | None = None,
-    user_id: UUID | str | None = None,
+    user_id: UUID | str = None,
     error_type: str | None = None
 ) -> Pagination[SystemLogResponse]:
     """
     Retrieves a paginated list of system logs, optionally filtered by level, user, or type.
-    Acquires its own connection from the global pool.
+    Uses a Window Function to fetch data and total count in a single database round-trip.
     """
     conditions = []
     params = []
@@ -132,14 +129,14 @@ async def get_logs(
         conditions.append(f"error_type = ${len(params)}")
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""    
-    count_query = f"SELECT COUNT(id) FROM system_logs {where_clause};"    
-    fetch_params = params.copy()
-    fetch_params.extend([limit, offset])
         
-    fetch_query = f"""
+    params.extend([limit, offset])
+            
+    query = f"""
         SELECT 
             id, 
             user_id, 
+            request_id,
             ip_address::TEXT as ip_address, 
             user_agent, 
             request_method, 
@@ -149,77 +146,67 @@ async def get_logs(
             error_message, 
             failed_query, 
             query_parameters::TEXT as query_parameters,
-            execution_context::TEXT as execution_context, 
+            execution_context::TEXT as execution_context,
             stack_trace, 
-            created_at
+            created_at,
+            COUNT(*) OVER() AS total_count 
         FROM 
             system_logs
         {where_clause}
         ORDER BY 
             created_at DESC
-        LIMIT ${len(fetch_params) - 1} 
-        OFFSET ${len(fetch_params)};
+        LIMIT 
+            ${len(params) - 1} 
+        OFFSET 
+            ${len(params)};
     """
     
     try:
-        total_items = await conn.fetchval(count_query, *params)
-        if total_items == 0:
-            return Pagination(items=[], total_items=0, limit=limit, offset=offset)
-        rows = await conn.fetch(fetch_query, *fetch_params)            
+        return await db.fetch_pagination(query, SystemLogResponse, limit, offset, conn, *params)
     except Exception as e:
         raise DatabaseException(
             client_message="An unexpected error occurred while fetching system logs.",
             original_error=e,
-            query=fetch_query,
-            params=fetch_params,
+            query=query,
+            params=params,
             additional_context={"action": "get_logs"}
         )
-    
-    parsed_items = [SystemLogResponse(**row) for row in rows]
-    
-    return Pagination(
-        items=parsed_items,
-        total_items=total_items,
-        limit=limit,
-        offset=offset
-    )
 
 
 async def get_log_by_id(log_id: UUID, conn: Connection) -> SystemLogResponse | None:
     """
     Retrieves a specific log entry by its UUID using the global connection pool.
     """
-    row = await conn.fetchrow(LOG_GET_QUERY, log_id)
-    if row: return SystemLogResponse(**row)
+    return await db.fetchrow(LOG_GET_QUERY, SystemLogResponse, conn, log_id)
 
 
-async def delete_log_by_id(log_id: UUID, conn: Connection) -> str | None:
-    await conn.execute(
-        "DELETE FROM system_logs WHERE id = $1;",
+async def delete_log_by_id(log_id: UUID, conn: Connection) -> bool:
+    row = await conn.fetchval(
+        "DELETE FROM system_logs WHERE id = $1 RETURNING id;",
         log_id
     )
+    return row is not None
 
 
 async def delete_logs(days_to_keep: int, conn: Connection) -> int:
     """
     Deletes system logs older than the specified number of days and 
     returns the total number of deleted records.
+    Executes in a single database round-trip.
     """
+    query = """
+        DELETE FROM 
+            system_logs 
+        WHERE 
+            created_at < NOW() - make_interval(days => $1);
+        """
     try:
-        if days_to_keep == 0:
-            count = await conn.fetchval("SELECT COUNT(id) FROM system_logs;")
-            await conn.execute("TRUNCATE TABLE system_logs;")
-            return count            
-        else:
-            query = "DELETE FROM system_logs WHERE created_at < NOW() - make_interval(days => $1);"
-            command_tag = await conn.execute(query, days_to_keep)
-            _, deleted_count = command_tag.split(" ")
-            return int(deleted_count)            
+        return await db.delete(query, conn, days_to_keep)
     except Exception as e:
         raise DatabaseException(
             client_message="An error occurred while cleaning up old system logs.",
             original_error=e,
-            query="DELETE / TRUNCATE system_logs",
+            query="DELETE FROM system_logs",
             params=[days_to_keep],
             additional_context={
                 "action": "delete_logs", 
